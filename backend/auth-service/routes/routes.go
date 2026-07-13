@@ -18,16 +18,17 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string, smtpCfg util
 	userHandler := handlers.NewUserHandler(userService)
 	authHandler := handlers.NewAuthHandler(authService)
 
-	// Public routes — no token required
-	router.POST("/login", authHandler.Login)
-	router.POST("/auth/forgot-password", authHandler.ForgotPassword)
-	router.POST("/auth/verify-reset-code", authHandler.VerifyResetCode)
-	router.POST("/auth/reset-password", authHandler.ResetPassword)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Any authenticated user (admin or guard)
+	// Public — no token required
+	router.POST("/auth/login", authHandler.Login)
+	router.POST("/auth/forgot-password", authHandler.ForgotPassword)
+	router.POST("/auth/verify-reset-code", authHandler.VerifyResetCode)
+	router.POST("/auth/reset-password", authHandler.ResetPassword)
+
+	// Any authenticated user
 	authenticated := router.Group("/auth")
 	authenticated.Use(middleware.AuthMiddleware(jwtSecret))
 	{
@@ -35,7 +36,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string, smtpCfg util
 	}
 
 	// Admin-only user management
-	admin := router.Group("/users")
+	admin := router.Group("/auth/users")
 	admin.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
 	{
 		admin.POST("", userHandler.CreateUser)

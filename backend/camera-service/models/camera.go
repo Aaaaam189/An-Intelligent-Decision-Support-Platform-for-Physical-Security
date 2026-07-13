@@ -13,7 +13,7 @@ type Camera struct {
 	Name      string    `gorm:"size:150;not null" json:"name"`
 	ZoneID    uuid.UUID `gorm:"type:char(36);index" json:"zoneId"`
 	Location  string    `gorm:"size:150;not null" json:"location"`
-	Isactive  bool      `gorm:"not null" json:"isActive"`
+	IsActive  bool      `gorm:"not null" json:"isActive"`
 	StreamURL string    `gorm:"size:255;not null" json:"streamUrl"`
 	CreatedAt time.Time `json:"createdAt"`
 

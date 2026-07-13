@@ -1,19 +1,18 @@
 package models
 
-import(
-	"time"
+import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-type Zone struct{
+type Zone struct {
 	ID   uuid.UUID `gorm:"type:char(36);primaryKey" json:"id"`
-	name string    `gorm:size:150;not null" json:"id"`
+	Name string    `gorm:"size:150;not null" json:"name"`
 }
 
-func (c *Zone) BeforeCreate(tx *gorm.DB) error {
-	if c.ID == uuid.Nil {
-		c.ID = uuid.New()
+func (z *Zone) BeforeCreate(tx *gorm.DB) error {
+	if z.ID == uuid.Nil {
+		z.ID = uuid.New()
 	}
 	return nil
 }

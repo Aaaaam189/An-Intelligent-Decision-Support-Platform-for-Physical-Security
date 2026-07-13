@@ -11,13 +11,23 @@ func main() {
 	cfg := config.Load()
 
 	router := gin.Default()
-	router.Use(config.CorsMiddleware(cfg)) // global CORS, same as "/**" in your CorsConfig
+	router.Use(config.CorsMiddleware(cfg))
 
-	// Each of these is one "route" from your GatewayConfig — a path
-	// prefix mapped to a downstream service's base URL.
-	router.Any("/api/auth/*proxyPath", proxy.NewProxy(cfg.AuthServiceURL, "/api/auth"))
-	router.Any("/api/cameras/*proxyPath", proxy.NewProxy(cfg.CameraServiceURL, "/api/cameras"))
-	router.Any("/api/incidents/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api/incidents"))
+	// Every route below strips exactly "/api" — nothing more, nothing
+	// service-specific. Each downstream service owns its own prefix
+	// internally (/auth/..., /cameras/..., /zones/...), so the gateway
+	// never needs special-casing per service.
+	router.Any("/api/auth", proxy.NewProxy(cfg.AuthServiceURL, "/api"))
+	router.Any("/api/auth/*proxyPath", proxy.NewProxy(cfg.AuthServiceURL, "/api"))
+
+	router.Any("/api/cameras", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
+	router.Any("/api/cameras/*proxyPath", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
+
+	router.Any("/api/zones", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
+	router.Any("/api/zones/*proxyPath", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
+
+	router.Any("/api/incidents", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
+	router.Any("/api/incidents/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "gateway ok"})
