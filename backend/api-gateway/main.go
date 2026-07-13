@@ -26,6 +26,12 @@ func main() {
 	router.Any("/api/zones", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
 	router.Any("/api/zones/*proxyPath", proxy.NewProxy(cfg.CameraServiceURL, "/api"))
 
+	router.Any("/api/rules", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
+	router.Any("/api/rules/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
+
+	router.Any("/api/shifts", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
+	router.Any("/api/shifts/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
+
 	router.Any("/api/incidents", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
 	router.Any("/api/incidents/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
 
