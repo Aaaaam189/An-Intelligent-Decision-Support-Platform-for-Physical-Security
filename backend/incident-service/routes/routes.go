@@ -8,12 +8,12 @@ import (
 	"sentinelai/incident-service/middleware"
 	"sentinelai/incident-service/models"
 	"sentinelai/incident-service/services"
+	"sentinelai/shared/internalauth"
 )
 
-func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
+func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string, incidentService *services.IncidentService) {
 	ruleService := services.NewRuleService(db)
 	shiftService := services.NewShiftService(db)
-	incidentService := services.NewIncidentService(db)
 
 	ruleHandler := handlers.NewRuleHandler(ruleService)
 	shiftHandler := handlers.NewShiftHandler(shiftService)
@@ -23,7 +23,6 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// Rules — admin only, both read and write (guards don't need these)
 	rules := router.Group("/rules")
 	rules.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
 	{
@@ -34,8 +33,6 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
 		rules.DELETE("/:id", ruleHandler.DeleteRule)
 	}
 
-	// Shifts — admin manages, any authenticated user can view,
-	// guards get a "my shifts" endpoint scoped to their own token
 	shiftsAuth := router.Group("/shifts")
 	shiftsAuth.Use(middleware.AuthMiddleware(jwtSecret))
 	{
@@ -48,13 +45,11 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
 	shiftsAdmin.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
 	{
 		shiftsAdmin.POST("", shiftHandler.CreateShift)
+		shiftsAdmin.POST("/batch", shiftHandler.CreateShiftBatch)
 		shiftsAdmin.PUT("/:id", shiftHandler.UpdateShift)
 		shiftsAdmin.DELETE("/:id", shiftHandler.DeleteShift)
 	}
 
-	// Incidents — any authenticated user can view; status updates are
-	// restricted to the assigned guard or an admin (enforced in the
-	// service layer); reassignment and manual creation are admin-only
 	incidentsAuth := router.Group("/incidents")
 	incidentsAuth.Use(middleware.AuthMiddleware(jwtSecret))
 	{
@@ -66,7 +61,14 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
 	incidentsAdmin := router.Group("/incidents")
 	incidentsAdmin.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
 	{
-		incidentsAdmin.POST("", incidentHandler.CreateIncident)
 		incidentsAdmin.PATCH("/:id/reassign", incidentHandler.Reassign)
+	}
+
+	// Internal — only other services can call this, using the shared
+	// secret instead of a human JWT. This is what decision-engine uses.
+	internal := router.Group("/internal/incidents")
+	internal.Use(internalauth.RequireInternalService(internalKey))
+	{
+		internal.POST("", incidentHandler.CreateIncident)
 	}
 }

@@ -17,23 +17,31 @@ type CreateUserRequest struct {
 type UpdateUserRequest struct {
 	FullName *string         `json:"fullName,omitempty"`
 	Role     *models.AppRole `json:"role,omitempty"`
-	Active   *bool           `json:"active,omitempty"`
+	IsActive *bool           `json:"isActive,omitempty"`
+}
+
+type DeactivateUserRequest struct {
+	ReactivateAt *time.Time `json:"reactivateAt,omitempty"`
 }
 
 type UserResponse struct {
-	ID        uuid.UUID      `json:"id"`
-	FullName  string         `json:"fullName"`
-	Email     string         `json:"email"`
-	Role      models.AppRole `json:"role"`
-	CreatedAt time.Time      `json:"createdAt"`
+	ID           uuid.UUID      `json:"id"`
+	FullName     string         `json:"fullName"`
+	Email        string         `json:"email"`
+	Role         models.AppRole `json:"role"`
+	IsActive     bool           `json:"isActive"`
+	ReactivateAt *time.Time     `json:"reactivateAt"`
+	CreatedAt    time.Time      `json:"createdAt"`
 }
 
 func ToUserResponse(u models.User) UserResponse {
 	return UserResponse{
-		ID:        u.ID,
-		FullName:  u.FullName,
-		Email:     u.Email,
-		Role:      u.Role,
-		CreatedAt: u.CreatedAt,
+		ID:           u.ID,
+		FullName:     u.FullName,
+		Email:        u.Email,
+		Role:         u.Role,
+		IsActive:     u.IsActive,
+		ReactivateAt: u.ReactivateAt,
+		CreatedAt:    u.CreatedAt,
 	}
 }

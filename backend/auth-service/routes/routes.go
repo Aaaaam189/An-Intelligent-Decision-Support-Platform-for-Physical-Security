@@ -40,6 +40,13 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string, smtpCfg util
 	admin.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
 	{
 		admin.POST("", userHandler.CreateUser)
+		admin.GET("", userHandler.GetAllUsers)
+		admin.GET("/active", userHandler.GetActiveUsers)
+		admin.GET("/inactive", userHandler.GetInactiveUsers)
+		admin.GET("/:id", userHandler.GetUserByID)
+		admin.PUT("/:id", userHandler.UpdateUser)
+		admin.PATCH("/:id/deactivate", userHandler.DeactivateUser)
+		admin.PATCH("/:id/reactivate", userHandler.ReactivateUser)
 		admin.DELETE("/:id", userHandler.DeleteUser)
 	}
 }

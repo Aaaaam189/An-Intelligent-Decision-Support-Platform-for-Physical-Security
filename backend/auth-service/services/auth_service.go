@@ -29,6 +29,18 @@ func (s *AuthService) Login(req dto.LoginRequest) (*dto.LoginResponse, error) {
 		return nil, errors.New("invalid credentials")
 	}
 
+	// Lazily auto-reactivate: if the scheduled date has passed, flip
+	// them active again right now, before checking anything else.
+	if !user.IsActive && user.ReactivateAt != nil && !user.ReactivateAt.After(time.Now()) {
+		user.IsActive = true
+		user.ReactivateAt = nil
+		s.DB.Save(&user)
+	}
+
+	if !user.IsActive {
+		return nil, errors.New("this account has been deactivated")
+	}
+
 	if !utils.CheckPassword(user.PasswordHash, req.Password) {
 		return nil, errors.New("invalid credentials")
 	}

@@ -95,3 +95,23 @@ func (h *ShiftHandler) DeleteShift(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "shift deleted"})
 }
+
+func (h *ShiftHandler) CreateShiftBatch(c *gin.Context) {
+	var req dto.CreateShiftBatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	shifts, err := h.Service.CreateShiftBatch(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := make([]dto.ShiftResponse, 0, len(shifts))
+	for _, sh := range shifts {
+		response = append(response, dto.ToShiftResponse(sh))
+	}
+	c.JSON(http.StatusCreated, response)
+}

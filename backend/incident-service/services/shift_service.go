@@ -88,3 +88,28 @@ func (s *ShiftService) DeleteShift(id string) error {
 	}
 	return result.Error
 }
+
+func (s *ShiftService) CreateShiftBatch(req dto.CreateShiftBatchRequest) ([]models.Shift, error) {
+	if !req.EndTime.After(req.StartTime) {
+		return nil, errors.New("endTime must be after startTime")
+	}
+
+	shifts := make([]models.Shift, 0, len(req.GuardIDs))
+	for _, guardID := range req.GuardIDs {
+		shifts = append(shifts, models.Shift{
+			GuardID:   guardID,
+			ZoneID:    req.ZoneID,
+			StartTime: req.StartTime,
+			EndTime:   req.EndTime,
+		})
+	}
+
+	// CreateInBatches inserts all rows in one efficient DB round trip,
+	// and if any single row fails, none of them are committed — you
+	// never end up with a half-created shift roster.
+	if err := s.DB.CreateInBatches(&shifts, len(shifts)).Error; err != nil {
+		return nil, errors.New("failed to create shifts")
+	}
+
+	return shifts, nil
+}

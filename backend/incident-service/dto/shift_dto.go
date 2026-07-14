@@ -13,6 +13,13 @@ type CreateShiftRequest struct {
 	EndTime   time.Time `json:"endTime" binding:"required"`
 }
 
+type CreateShiftBatchRequest struct {
+	ZoneID    uuid.UUID   `json:"zoneId" binding:"required"`
+	StartTime time.Time   `json:"startTime" binding:"required"`
+	EndTime   time.Time   `json:"endTime" binding:"required"`
+	GuardIDs  []uuid.UUID `json:"guardIds" binding:"required,min=1"`
+}
+
 type UpdateShiftRequest struct {
 	ZoneID    *uuid.UUID `json:"zoneId,omitempty"`
 	StartTime *time.Time `json:"startTime,omitempty"`

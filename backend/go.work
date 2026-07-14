@@ -1,0 +1,11 @@
+go 1.26.4
+
+use (
+	./api-gateway
+	./auth-service
+	./camera-service
+	./decision-engine
+	./incident-service
+	./shared
+	./tools/fake-event-publisher
+)
