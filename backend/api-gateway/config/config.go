@@ -10,9 +10,10 @@ type Config struct {
 	CorsAllowedHeaders    string
 	CorsAllowCredentials  bool
 
-	AuthServiceURL     string
-	CameraServiceURL   string
-	IncidentServiceURL string
+	AuthServiceURL       string
+	CameraServiceURL     string
+	IncidentServiceURL   string
+	AnalyticsServiceURL  string
 }
 
 func Load() Config {
@@ -30,8 +31,9 @@ func Load() Config {
 		CorsAllowedHeaders:   viper.GetString("CORS_ALLOWED_HEADERS"),
 		CorsAllowCredentials: viper.GetBool("CORS_ALLOW_CREDENTIALS"),
 
-		AuthServiceURL:     viper.GetString("AUTH_SERVICE_URL"),
-		CameraServiceURL:   viper.GetString("CAMERA_SERVICE_URL"),
-		IncidentServiceURL: viper.GetString("INCIDENT_SERVICE_URL"),
+		AuthServiceURL:      viper.GetString("AUTH_SERVICE_URL"),
+		CameraServiceURL:    viper.GetString("CAMERA_SERVICE_URL"),
+		IncidentServiceURL:  viper.GetString("INCIDENT_SERVICE_URL"),
+		AnalyticsServiceURL: viper.GetString("ANALYTICS_SERVICE_URL"),
 	}
 }

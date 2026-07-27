@@ -1,11 +1,13 @@
 go 1.26.4
 
 use (
+	./analytics-worker
 	./api-gateway
 	./auth-service
 	./camera-service
 	./decision-engine
 	./incident-service
+	./notification-worker
 	./shared
 	./tools/fake-event-publisher
 )

@@ -35,6 +35,9 @@ func main() {
 	router.Any("/api/incidents", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
 	router.Any("/api/incidents/*proxyPath", proxy.NewProxy(cfg.IncidentServiceURL, "/api"))
 
+	router.Any("/api/analytics", proxy.NewProxy(cfg.AnalyticsServiceURL, "/api"))
+	router.Any("/api/analytics/*proxyPath", proxy.NewProxy(cfg.AnalyticsServiceURL, "/api"))
+
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "gateway ok"})
 	})

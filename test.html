@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body>
+<pre id="log" style="font-family: monospace; white-space: pre-wrap; font-size: 14px;"></pre>
+<script>
+  const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODQyNzU5NTgsInJvbGUiOiJBRE1JTiIsInVzZXJJZCI6IjE4MDgxZTBmLTdhZTAtMTFmMS05MzM3LTEwZmZlMGE2YWU3MyJ9.TwM_36nmJhLDBiZsdVRzaTcQq5bkJ1Vga4CCuYL_bwc";
+  const ws = new WebSocket(`ws://localhost:8085/ws?token=${token}`);
+  const log = document.getElementById("log");
+
+  ws.onopen = () => log.textContent += "[connected]\n";
+  ws.onmessage = (e) => log.textContent += "[received] " + e.data + "\n";
+  ws.onerror = () => log.textContent += "[error]\n";
+  ws.onclose = () => log.textContent += "[closed]\n";
+</script>
+</body>
+</html>

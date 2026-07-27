@@ -4,6 +4,14 @@
 .env.*.local
 */.env
 
+# Python
+ai-service/venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
 # Go
 *.exe
 *.exe~

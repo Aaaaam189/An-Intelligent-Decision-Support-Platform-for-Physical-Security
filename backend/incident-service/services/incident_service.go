@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 	"math/rand"
 	"time"
 
@@ -52,6 +53,8 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 			return err
 		}
 
+		log.Printf("DEBUG: now=%s zoneId=%s foundShifts=%d", now.Format(time.RFC3339), req.ZoneID, len(shifts))
+
 		incident := models.Incident{
 			CameraID:  req.CameraID,
 			ZoneID:    req.ZoneID,
@@ -63,7 +66,12 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 		}
 
 		if len(shifts) == 0 {
-			return tx.Create(&incident).Error
+			log.Printf("DEBUG: no shifts cover this zone/time — creating unassigned incident")
+			if err := tx.Create(&incident).Error; err != nil {
+				return err
+			}
+			created = incident
+			return nil
 		}
 
 		shiftByGuard := make(map[uuid.UUID]uuid.UUID)
@@ -91,18 +99,25 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 			}
 		}
 
-		// Case 1: a free guard exists — the original happy path.
+		log.Printf("DEBUG: onDuty=%v busyCount=%d freeCount=%d", onDutyGuardIDs, len(busyByGuard), len(freeGuardIDs))
+		for guardID, inc := range busyByGuard {
+			log.Printf("DEBUG: busy guard=%s incidentId=%s priority=%s", guardID, inc.ID, inc.Priority)
+		}
+
 		if len(freeGuardIDs) > 0 {
 			chosen := freeGuardIDs[rand.Intn(len(freeGuardIDs))]
 			shiftID := shiftByGuard[chosen]
 			incident.AssignedGuardID = &chosen
 			incident.ShiftID = &shiftID
 			incident.Status = models.StatusInProgress
-			return tx.Create(&incident).Error
+			log.Printf("DEBUG: assigning to free guard=%s", chosen)
+			if err := tx.Create(&incident).Error; err != nil {
+				return err
+			}
+			created = incident
+			return nil
 		}
 
-		// Case 2: nobody free — for CRITICAL incidents only, try to
-		// preempt whichever busy guard is handling the least urgent thing.
 		if req.Priority == models.PriorityCritical {
 			var preemptGuard uuid.UUID
 			var preemptIncident models.Incident
@@ -111,6 +126,7 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 
 			for guardID, inc := range busyByGuard {
 				rank := priorityRank(inc.Priority)
+				log.Printf("DEBUG: comparing guard=%s priority=%s rank=%d against lowestRank=%d", guardID, inc.Priority, rank, lowestRank)
 				if rank < lowestRank {
 					lowestRank = rank
 					preemptGuard = guardID
@@ -118,6 +134,8 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 					found = true
 				}
 			}
+
+			log.Printf("DEBUG: preemption search done — found=%v preemptGuard=%s", found, preemptGuard)
 
 			if found {
 				preemptIncident.Status = models.StatusPending
@@ -131,27 +149,37 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 				incident.AssignedGuardID = &preemptGuard
 				incident.ShiftID = &shiftID
 				incident.Status = models.StatusInProgress
-				return tx.Create(&incident).Error
+				log.Printf("DEBUG: preempted guard=%s, assigning new critical incident to them", preemptGuard)
+				if err := tx.Create(&incident).Error; err != nil {
+					return err
+				}
+				created = incident
+				return nil
 			}
 
-			// Case 3: everyone busy is equally or more critical —
-			// nobody can be preempted. Flag for an alert after the
-			// transaction commits.
+			log.Printf("DEBUG: no guard could be preempted — flagging needsAlert")
 			needsAlert = true
 		}
 
-		return tx.Create(&incident).Error
+		if err := tx.Create(&incident).Error; err != nil {
+			return err
+		}
+		created = incident
+		return nil
 	})
 
 	if err != nil {
-		return nil, errors.New("failed to create incident")
-	}
+			return nil, errors.New("failed to create incident")
+		}
 
-	if err := s.DB.Where("id = ?", created.ID).First(&created).Error; err == nil && needsAlert {
-		s.alertCriticalUnassigned(created)
-	}
+		s.publishIncidentCreated(created)
 
-	return &created, nil
+		if needsAlert {
+			log.Printf("DEBUG: publishing alert for incidentId=%s", created.ID)
+			s.alertCriticalUnassigned(created)
+		}
+
+		return &created, nil
 }
 
 // alertCriticalUnassigned publishes an event that notification-worker
@@ -183,6 +211,40 @@ func (s *IncidentService) GetIncidentByID(id string) (*models.Incident, error) {
 		return nil, errors.New("incident not found")
 	}
 	return &incident, nil
+}
+
+func (s *IncidentService) publishIncidentCreated(incident models.Incident) {
+	if s.Channel == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"incidentId":      incident.ID,
+		"cameraId":        incident.CameraID,
+		"zoneId":          incident.ZoneID,
+		"type":            incident.Type,
+		"priority":        incident.Priority,
+		"status":          incident.Status,
+		"assignedGuardId": incident.AssignedGuardID,
+		"createdAt":       incident.CreatedAt,
+		"closedAt":			 incident.ClosedAt,
+	}
+	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "incident.created", payload)
+}
+
+func (s *IncidentService) publishStatusChanged(incident models.Incident) {
+	if s.Channel == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"incidentId":      incident.ID,
+		"zoneId":          incident.ZoneID,
+		"priority":        incident.Priority,
+		"status":          incident.Status,
+		"assignedGuardId": incident.AssignedGuardID,
+		"createdAt":       incident.CreatedAt,
+		"closedAt":        incident.ClosedAt,
+	}
+	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "incident.status_changed", payload)
 }
 
 // findActiveShift looks up whether a guard is still on duty for a
@@ -273,9 +335,12 @@ func (s *IncidentService) UpdateStatus(id string, userID string, role models.App
 	})
 
 	if err != nil {
-		return nil, err
-	}
-	return &updated, nil
+			return nil, err
+		}
+
+		s.publishStatusChanged(updated)
+
+		return &updated, nil
 }
 
 func (s *IncidentService) Reassign(id string, req dto.ReassignIncidentRequest) (*models.Incident, error) {
