@@ -40,6 +40,69 @@ func priorityRank(p models.IncidentPriority) int {
 	}
 }
 
+// isActiveIncidentStatus reports whether an incident in the given status is
+// still being worked (i.e. counts against a guard's availability).
+func isActiveIncidentStatus(status models.IncidentStatus) bool {
+	return status == models.StatusPending || status == models.StatusInProgress
+}
+
+// IsGuardOccupied reports whether an on-duty guard is "occupied" per
+// Requirement 6.3: a guard assigned to at least one active (PENDING or
+// IN_PROGRESS) incident whose severity is CRITICAL or HIGH.
+//
+// This is the availability-alert / assistance definition of occupancy and is
+// intentionally narrower than the "busy" check used for plain assignment
+// (which treats any IN_PROGRESS incident as busy). It is exported so the
+// assistance and availability-alert logic can reuse it.
+func IsGuardOccupied(db *gorm.DB, guardID uuid.UUID) (bool, error) {
+	var count int64
+	err := db.Model(&models.Incident{}).
+		Where("assigned_guard_id = ?", guardID).
+		Where("status IN ?", []models.IncidentStatus{models.StatusPending, models.StatusInProgress}).
+		Where("priority IN ?", []models.IncidentPriority{models.PriorityCritical, models.PriorityHigh}).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// OccupiedGuardIDs returns, for the provided set of on-duty guard IDs, the
+// subset that are occupied per Requirement 6.3 (assigned to at least one
+// active CRITICAL/HIGH incident). It runs a single query and is exported so
+// callers computing assistance recipients or availability alerts can reuse it.
+func OccupiedGuardIDs(db *gorm.DB, guardIDs []uuid.UUID) (map[uuid.UUID]bool, error) {
+	occupied := make(map[uuid.UUID]bool)
+	if len(guardIDs) == 0 {
+		return occupied, nil
+	}
+
+	var rows []models.Incident
+	err := db.Model(&models.Incident{}).
+		Where("assigned_guard_id IN ?", guardIDs).
+		Where("status IN ?", []models.IncidentStatus{models.StatusPending, models.StatusInProgress}).
+		Where("priority IN ?", []models.IncidentPriority{models.PriorityCritical, models.PriorityHigh}).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, inc := range rows {
+		if inc.AssignedGuardID != nil {
+			occupied[*inc.AssignedGuardID] = true
+		}
+	}
+	return occupied, nil
+}
+
+// CreateIncident persists a new incident and applies the assignment invariant:
+//   - if at least one on-duty guard for the zone is free, the incident is
+//     assigned to one of them (Requirement 5.1);
+//   - if no on-duty guard is free and no preemption applies, the incident is
+//     persisted in an unassigned PENDING state with no assigned guard
+//     (Requirement 5.5);
+//   - a CRITICAL incident may preempt an on-duty guard's lower-priority
+//     incident when no free guard exists.
 func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models.Incident, error) {
 	var created models.Incident
 	var needsAlert bool
@@ -169,17 +232,100 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 	})
 
 	if err != nil {
-			return nil, errors.New("failed to create incident")
+		return nil, errors.New("failed to create incident")
+	}
+
+	s.publishIncidentCreated(created)
+
+	// Targeted notification events (Requirements 5.2, 5.6). If the incident was
+	// assigned to a guard, notify that guard; otherwise it was left unassigned,
+	// so escalate to supervisors/coordinators.
+	if created.AssignedGuardID != nil {
+		s.publishIncidentAssigned(created)
+	} else {
+		s.publishIncidentUnassigned(created)
+	}
+
+	if needsAlert {
+		log.Printf("DEBUG: publishing alert for incidentId=%s", created.ID)
+		s.alertCriticalUnassigned(created)
+	}
+
+	return &created, nil
+}
+
+// publishIncidentAssigned emits notification.incident_assigned targeted at the
+// guard the incident was handed to (Requirement 5.2). The notification-worker
+// delivers this only to the assigned guard, keyed on assignedGuardId.
+func (s *IncidentService) publishIncidentAssigned(incident models.Incident) {
+	if s.Channel == nil || incident.AssignedGuardID == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"incidentId":      incident.ID,
+		"zoneId":          incident.ZoneID,
+		"type":            incident.Type,
+		"priority":        incident.Priority,
+		"status":          incident.Status,
+		"assignedGuardId": incident.AssignedGuardID,
+		"createdAt":       incident.CreatedAt,
+	}
+	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "notification.incident_assigned", payload)
+}
+
+// publishIncidentUnassigned emits notification.incident_unassigned when an
+// incident is created but no on-duty guard was available to take it
+// (Requirement 5.6). The notification-worker routes this to supervisors and
+// coordinators by role, so no per-recipient field is required in the payload.
+func (s *IncidentService) publishIncidentUnassigned(incident models.Incident) {
+	if s.Channel == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"incidentId": incident.ID,
+		"zoneId":     incident.ZoneID,
+		"type":       incident.Type,
+		"priority":   incident.Priority,
+		"status":     incident.Status,
+		"createdAt":  incident.CreatedAt,
+	}
+	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "notification.incident_unassigned", payload)
+}
+
+// publishIncidentResolved emits notification.incident_resolved targeted at the
+// incident's team — the guards on duty for the incident's zone, excluding the
+// guard who resolved it (Requirement 5.4). The recipient set is computed here
+// and carried in recipientGuardIds; the resolver is carried in resolverId so
+// the notification-worker can exclude them as well.
+func (s *IncidentService) publishIncidentResolved(incident models.Incident, resolverID string) {
+	if s.Channel == nil {
+		return
+	}
+
+	teamIDs, err := onDutyGuardsForZone(s.DB, incident.ZoneID, time.Now())
+	if err != nil {
+		log.Printf("failed to load team for incident %s resolution notification: %v", incident.ID, err)
+		teamIDs = nil
+	}
+
+	recipients := make([]string, 0, len(teamIDs))
+	for _, id := range teamIDs {
+		if id.String() == resolverID {
+			continue
 		}
+		recipients = append(recipients, id.String())
+	}
 
-		s.publishIncidentCreated(created)
-
-		if needsAlert {
-			log.Printf("DEBUG: publishing alert for incidentId=%s", created.ID)
-			s.alertCriticalUnassigned(created)
-		}
-
-		return &created, nil
+	payload := map[string]interface{}{
+		"incidentId":        incident.ID,
+		"zoneId":            incident.ZoneID,
+		"priority":          incident.Priority,
+		"status":            incident.Status,
+		"resolverId":        resolverID,
+		"recipientGuardIds": recipients,
+		"closedAt":          incident.ClosedAt,
+	}
+	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "notification.incident_resolved", payload)
 }
 
 // alertCriticalUnassigned publishes an event that notification-worker
@@ -293,6 +439,7 @@ func (s *IncidentService) tryAutoAssignPending(tx *gorm.DB, guardID, zoneID uuid
 
 func (s *IncidentService) UpdateStatus(id string, userID string, role models.AppRole, req dto.UpdateIncidentStatusRequest) (*models.Incident, error) {
 	var updated models.Incident
+	var resolving bool
 
 	err := s.DB.Transaction(func(tx *gorm.DB) error {
 		var incident models.Incident
@@ -305,6 +452,11 @@ func (s *IncidentService) UpdateStatus(id string, userID string, role models.App
 				return errors.New("only the assigned guard or an admin can update this incident")
 			}
 		}
+
+		// A resolution/closure that transitions the incident out of an active
+		// state should notify the team (Requirement 5.4).
+		resolving = (req.Status == models.StatusResolved || req.Status == models.StatusClosed) &&
+			incident.Status != models.StatusResolved && incident.Status != models.StatusClosed
 
 		freeingUp := (req.Status == models.StatusResolved || req.Status == models.StatusClosed) &&
 			incident.Status == models.StatusInProgress
@@ -339,6 +491,10 @@ func (s *IncidentService) UpdateStatus(id string, userID string, role models.App
 		}
 
 		s.publishStatusChanged(updated)
+
+		if resolving {
+			s.publishIncidentResolved(updated, userID)
+		}
 
 		return &updated, nil
 }

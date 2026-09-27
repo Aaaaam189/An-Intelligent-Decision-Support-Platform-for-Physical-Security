@@ -4,6 +4,7 @@ import Hls from "hls.js";
 import { useCamera } from "../../hooks/useCameras";
 import { formatDate } from "../../utils/formatters";
 import Spinner from "../../components/ui/Spinner";
+import { cameraStreamUrl } from "../../constants/stream";
 
 export default function CameraFullscreenPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,22 +18,50 @@ export default function CameraFullscreenPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [streamError, setStreamError] = useState(false);
+  // Prefer the ai-service annotated MJPEG stream (live boxes). If it fails to
+  // load (ai-service not running this camera), fall back to the raw player.
+  const [useAnnotated, setUseAnnotated] = useState(true);
 
   const handleBack = () => {
     navigate(`/cameras/${id}`);
   };
 
-  // HLS setup
+  // Stream setup. Two kinds of sources are supported:
+  //   1. Progressive files served over HTTP (.mp4/.webm/.ogg/.mov/.avi) —
+  //      played directly by the native <video> element. This is what the demo
+  //      uses (a looping video acting as a CCTV feed).
+  //   2. HLS streams (.m3u8) — played natively on Safari, or via hls.js
+  //      elsewhere. This is the path a real RTSP-to-HLS gateway would use.
   useEffect(() => {
+    // When showing the annotated MJPEG stream there's no <video> to wire up.
+    if (useAnnotated) return;
+
     const video = videoRef.current;
     if (!video || !camera?.streamUrl) return;
 
     const streamUrl = camera.streamUrl;
+    setStreamError(false);
 
-    // Check native HLS support (Safari, iOS)
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    // Strip query/hash before checking the extension.
+    const pathOnly = streamUrl.split(/[?#]/)[0].toLowerCase();
+    const isHls = pathOnly.endsWith(".m3u8");
+
+    const handleNativeError = () => setStreamError(true);
+
+    if (!isHls) {
+      // Progressive file: hand it straight to the video element. Loop and mute
+      // so it behaves like a continuous feed and can autoplay.
       video.src = streamUrl;
-      video.addEventListener("error", () => setStreamError(true));
+      video.loop = true;
+      video.muted = true;
+      video.addEventListener("error", handleNativeError);
+      video.play().catch(() => {
+        /* autoplay may be blocked; user can press play */
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS (Safari, iOS)
+      video.src = streamUrl;
+      video.addEventListener("error", handleNativeError);
     } else if (Hls.isSupported()) {
       const hls = new Hls();
       hlsRef.current = hls;
@@ -50,12 +79,13 @@ export default function CameraFullscreenPage() {
     }
 
     return () => {
+      video.removeEventListener("error", handleNativeError);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
-  }, [camera?.streamUrl]);
+  }, [camera?.streamUrl, useAnnotated]);
 
   // Video event listeners
   useEffect(() => {
@@ -138,12 +168,18 @@ export default function CameraFullscreenPage() {
 
   return (
     <div style={containerStyle}>
-      {/* Video element */}
-      <video
-        ref={videoRef}
-        style={videoStyle}
-        playsInline
-      />
+      {useAnnotated && id ? (
+        // Live annotated MJPEG stream (detection boxes drawn by the ai-service).
+        <img
+          src={cameraStreamUrl(id)}
+          alt={`${camera.name} live detection`}
+          style={videoStyle}
+          onError={() => setUseAnnotated(false)}
+        />
+      ) : (
+        // Fallback: raw stream in the native player.
+        <video ref={videoRef} style={videoStyle} playsInline />
+      )}
 
       {/* Back button - top left */}
       <button
@@ -154,8 +190,13 @@ export default function CameraFullscreenPage() {
         ←
       </button>
 
-      {/* Stream error overlay */}
-      {streamError && (
+      {/* Live badge when showing the annotated detection stream */}
+      {useAnnotated && (
+        <div style={liveBadgeStyle}>● LIVE DETECTION</div>
+      )}
+
+      {/* Stream error overlay (only meaningful for the fallback player) */}
+      {!useAnnotated && streamError && (
         <div style={errorOverlayStyle}>
           Stream unavailable
         </div>
@@ -166,25 +207,27 @@ export default function CameraFullscreenPage() {
         Added at: {formatDate(camera.createdAt)}
       </div>
 
-      {/* Playback controls */}
-      <div style={controlsContainerStyle}>
-        <button
-          onClick={togglePlayPause}
-          style={playPauseButtonStyle}
-          aria-label={isPlaying ? "Pause" : "Play"}
-        >
-          {isPlaying ? "⏸" : "▶"}
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          value={currentTime}
-          onChange={handleSeek}
-          style={seekBarStyle}
-          aria-label="Seek"
-        />
-      </div>
+      {/* Playback controls (fallback player only; MJPEG is live, no seeking) */}
+      {!useAnnotated && (
+        <div style={controlsContainerStyle}>
+          <button
+            onClick={togglePlayPause}
+            style={playPauseButtonStyle}
+            aria-label={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? "⏸" : "▶"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            value={currentTime}
+            onChange={handleSeek}
+            style={seekBarStyle}
+            aria-label="Seek"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -199,6 +242,19 @@ const containerStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   overflow: "hidden",
+};
+
+const liveBadgeStyle: CSSProperties = {
+  position: "absolute",
+  top: "16px",
+  right: "16px",
+  backgroundColor: "rgba(200, 0, 0, 0.85)",
+  color: "#FFFFFF",
+  padding: "6px 12px",
+  borderRadius: "6px",
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.5px",
 };
 
 const videoStyle: CSSProperties = {

@@ -48,6 +48,25 @@ func (h *CameraHandler) GetAllCameras(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// GetActiveCamerasInternal is the internal, service-to-service endpoint the
+// ai-service polls to discover which cameras it should stream. It returns
+// only active cameras with their streamUrl and zoneId, so the ai-service can
+// open each feed and tag detections with the right camera/zone.
+func (h *CameraHandler) GetActiveCamerasInternal(c *gin.Context) {
+	cameras, err := h.Service.GetActiveCameras()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := make([]dto.CameraResponse, 0, len(cameras))
+	for _, cam := range cameras {
+		response = append(response, dto.ToCameraResponse(cam))
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *CameraHandler) GetCameraByID(c *gin.Context) {
 	id := c.Param("id")
 

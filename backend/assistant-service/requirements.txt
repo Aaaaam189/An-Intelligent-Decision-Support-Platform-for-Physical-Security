@@ -1,0 +1,23 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Event consumption (async AMQP)
+aio-pika==9.5.4
+
+# Redis Stack / RediSearch (vector index + conversation memory)
+redis==5.2.1
+
+# HTTP client for upstream service calls + Ollama
+httpx==0.28.1
+
+# Configuration
+pydantic-settings==2.7.1
+
+# JWT validation (shared HS256 secret with the Go services)
+PyJWT==2.10.1
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.2
+hypothesis==6.123.2

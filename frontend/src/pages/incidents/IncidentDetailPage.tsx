@@ -254,7 +254,7 @@ export default function IncidentDetailPage() {
               timestamp = incident.createdAt;
             } else if (status === "CLOSED" && incident.closedAt) {
               timestamp = incident.closedAt;
-            } else if (isReached && status !== "PENDING") {
+            } else if (isReached) {
               // For intermediate statuses, we don't have exact timestamps
               // from the API, so we show a checkmark for reached states
               timestamp = null;

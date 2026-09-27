@@ -14,6 +14,7 @@ type Config struct {
 	CameraServiceURL     string
 	IncidentServiceURL   string
 	AnalyticsServiceURL  string
+	AssistantServiceURL  string
 }
 
 func Load() Config {
@@ -35,5 +36,6 @@ func Load() Config {
 		CameraServiceURL:    viper.GetString("CAMERA_SERVICE_URL"),
 		IncidentServiceURL:  viper.GetString("INCIDENT_SERVICE_URL"),
 		AnalyticsServiceURL: viper.GetString("ANALYTICS_SERVICE_URL"),
+		AssistantServiceURL: viper.GetString("ASSISTANT_SERVICE_URL"),
 	}
 }

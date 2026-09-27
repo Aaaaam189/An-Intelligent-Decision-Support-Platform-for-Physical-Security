@@ -21,11 +21,11 @@ func Connect(cfg config.Config) *gorm.DB {
 		panic("failed to connect to database: " + err.Error())
 	}
 
-	if err := db.AutoMigrate(&models.IncidentStat{}); err != nil {
-		panic("failed to migrate database: " + err.Error())
-	}
-
-	if err := db.AutoMigrate(&models.IncidentStat{}, &models.CriticalAlert{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.IncidentStat{},
+		&models.CriticalAlert{},
+		&models.AvailabilityAlert{},
+	); err != nil {
 		panic("failed to migrate database: " + err.Error())
 	}
 

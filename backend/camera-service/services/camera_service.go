@@ -46,6 +46,17 @@ func (s *CameraService) GetAllCameras() ([]models.Camera, error) {
 	return cameras, nil
 }
 
+// GetActiveCameras returns only cameras whose IsActive flag is set. The
+// ai-service polls this (via the internal endpoint) to know which camera
+// feeds it should be streaming and running detection on.
+func (s *CameraService) GetActiveCameras() ([]models.Camera, error) {
+	var cameras []models.Camera
+	if err := s.DB.Where("is_active = ?", true).Find(&cameras).Error; err != nil {
+		return nil, errors.New("failed to fetch active cameras")
+	}
+	return cameras, nil
+}
+
 func (s *CameraService) GetCameraByID(id string) (*models.Camera, error) {
 	var camera models.Camera
 	if err := s.DB.Where("id = ?", id).First(&camera).Error; err != nil {

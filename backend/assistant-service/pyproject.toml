@@ -1,0 +1,43 @@
+[project]
+name = "assistant-service"
+version = "0.1.0"
+description = "RAG chat microservice for the SentinelAI physical-security platform"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "aio-pika==9.5.4",
+    "redis==5.2.1",
+    "httpx==0.28.1",
+    "pydantic-settings==2.7.1",
+    "PyJWT==2.10.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.2",
+    "hypothesis==6.123.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "api",
+    "chat",
+    "consumer",
+    "backfill",
+    "resolver",
+    "indexing",
+    "ollama",
+    "store",
+    "config",
+    "models",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

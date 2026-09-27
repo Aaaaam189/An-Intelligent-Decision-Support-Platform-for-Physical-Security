@@ -49,6 +49,9 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 )
 
-require sentinelai/shared v0.0.0
+require (
+	pgregory.net/rapid v1.3.0
+	sentinelai/shared v0.0.0
+)
 
 replace sentinelai/shared => ../shared

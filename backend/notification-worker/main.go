@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 
 	"sentinelai/notification-worker/config"
@@ -17,13 +16,6 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true }, // fine for dev; tighten later
 }
 
-func verifyToken(tokenString, secret string) bool {
-	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	})
-	return err == nil && token.Valid
-}
-
 func main() {
 	cfg := config.Load()
 
@@ -33,18 +25,38 @@ func main() {
 
 	rabbitmq.DeclareExchange(ch, cfg.ExchangeName)
 
-	// One queue, two bindings — both incident.created and
-	// alert.critical_unassigned land in the same queue, since this
-	// worker's only job is "forward everything to the dashboard."
-	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "incident.created")
-	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "alert.critical_unassigned")
+	// One queue, many bindings — every routing key this worker cares about
+	// lands in the same queue; the consumer inspects the routing key to decide
+	// who each message should be delivered to (a specific guard, a role, or a
+	// broadcast fallback).
+	for _, key := range []string{
+		// Legacy/broadcast keys retained for backward compatibility.
+		"incident.created",
+		"alert.critical_unassigned",
+		// Targeted notification + alert keys (detection-rule-engine).
+		"notification.incident_assigned",
+		"notification.incident_resolved",
+		"notification.incident_unassigned",
+		"notification.assistance",
+		"alert.availability_created",
+	} {
+		rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, key)
+	}
 
 	h := hub.NewHub()
 	go consumer.Start(ch, cfg.QueueName, h)
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
-		if token == "" || !verifyToken(token, cfg.JWTSecret) {
+		if token == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse the JWT once, both to authenticate the connection and to
+		// pull out the user ID + role so the hub can target this client.
+		identity, err := hub.ParseIdentity(token, cfg.JWTSecret)
+		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -55,8 +67,8 @@ func main() {
 			return
 		}
 
-		h.Register(wsConn)
-		log.Println("client connected")
+		h.Register(wsConn, identity)
+		log.Printf("client connected (userId=%s role=%s)", identity.UserID, identity.Role)
 
 		// Keep reading (and discarding) so we notice when the client
 		// disconnects — WebSockets need this loop even if the client

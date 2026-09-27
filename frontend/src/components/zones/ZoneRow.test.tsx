@@ -14,6 +14,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />
@@ -28,6 +29,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />
@@ -48,6 +50,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={onUpdate}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />
@@ -67,6 +70,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />
@@ -84,6 +88,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={true}
         updateError={null}
       />
@@ -100,6 +105,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />
@@ -115,6 +121,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={vi.fn()}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError="Failed to update zone"
       />
@@ -131,6 +138,7 @@ describe("ZoneRow", () => {
       <ZoneRow
         zone={mockZone}
         onUpdate={onUpdate}
+        onDelete={vi.fn()}
         isUpdating={false}
         updateError={null}
       />

@@ -5,6 +5,7 @@ import { useZones } from "../../hooks/useZones";
 import DeleteConfirmationModal from "../../components/cameras/DeleteConfirmationModal";
 import Spinner from "../../components/ui/Spinner";
 import { colors, fontFamily, fontSizes, borderRadius } from "../../constants/theme";
+import { cameraStreamUrl } from "../../constants/stream";
 
 type EditableField = "name" | "location" | "zoneId" | "streamUrl";
 
@@ -395,10 +396,28 @@ export default function CameraDetailsPage() {
           }
         }}
       >
-        {/* Placeholder video area */}
-        <p style={{ color: "#666666", fontSize: fontSizes.body, fontFamily }}>
-          Video Stream
-        </p>
+        {/* Live annotated MJPEG stream from the ai-service (bounding boxes
+            drawn). Falls back to the raw stream video if the ai-service isn't
+            streaming this camera, then to a label if there's no stream at all. */}
+        {id ? (
+          <img
+            src={cameraStreamUrl(id)}
+            alt={`${camera.name} live detection`}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            onError={(e) => {
+              const img = e.currentTarget;
+              // Avoid an infinite error loop: only fall back once.
+              if (camera.streamUrl && img.dataset.fellBack !== "true") {
+                img.dataset.fellBack = "true";
+                img.src = camera.streamUrl;
+              }
+            }}
+          />
+        ) : (
+          <p style={{ color: "#666666", fontSize: fontSizes.body, fontFamily }}>
+            Video Stream
+          </p>
+        )}
 
         {/* Fullscreen icon */}
         <button

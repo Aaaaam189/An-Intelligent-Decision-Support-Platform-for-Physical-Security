@@ -10,10 +10,11 @@ import (
 type IncidentType string
 
 const (
-	TypeUnauthorizedAccess  IncidentType = "UNAUTHORIZED_ACCESS"
-	TypeRestrictedZoneBreach IncidentType = "RESTRICTED_ZONE_BREACH"
+	TypeWeaponDetected      IncidentType = "WEAPON_DETECTED"
+	TypeIntrusion           IncidentType = "INTRUSION"
+	TypeAfterHoursPresence  IncidentType = "AFTER_HOURS_PRESENCE"
+	TypeUnauthorizedVehicle IncidentType = "UNAUTHORIZED_VEHICLE"
 	TypeCrowdOverflow       IncidentType = "CROWD_OVERFLOW"
-	TypeMultiCameraMatch    IncidentType = "MULTI_CAMERA_MATCH"
 	TypeSuspiciousActivity  IncidentType = "SUSPICIOUS_ACTIVITY"
 	TypeOther               IncidentType = "OTHER"
 )

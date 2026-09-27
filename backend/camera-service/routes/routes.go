@@ -8,9 +8,10 @@ import (
 	"sentinelai/camera-service/middleware"
 	"sentinelai/camera-service/models"
 	"sentinelai/camera-service/services"
+	"sentinelai/shared/internalauth"
 )
 
-func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
+func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string) {
 	cameraService := services.NewCameraService(db)
 	zoneService := services.NewZoneService(db)
 
@@ -42,5 +43,14 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret string) {
 		admin.POST("/zones", zoneHandler.CreateZone)
 		admin.PUT("/zones/:id", zoneHandler.UpdateZone)
 		admin.DELETE("/zones/:id", zoneHandler.DeleteZone)
+	}
+
+	// Internal — service-to-service only, using the shared internal key
+	// instead of a human JWT. The ai-service polls this to discover which
+	// cameras (with their streamUrl + zoneId) it should stream.
+	internal := router.Group("/internal/cameras")
+	internal.Use(internalauth.RequireInternalService(internalKey))
+	{
+		internal.GET("/active", cameraHandler.GetActiveCamerasInternal)
 	}
 }

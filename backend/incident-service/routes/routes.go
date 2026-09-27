@@ -14,10 +14,14 @@ import (
 func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string, incidentService *services.IncidentService) {
 	ruleService := services.NewRuleService(db)
 	shiftService := services.NewShiftService(db)
+	// Reuse the incident service's RabbitMQ channel/exchange so alert-created
+	// events are published on the same connection.
+	alertService := services.NewAvailabilityAlertService(db, incidentService.Channel, incidentService.ExchangeName)
 
 	ruleHandler := handlers.NewRuleHandler(ruleService)
 	shiftHandler := handlers.NewShiftHandler(shiftService)
 	incidentHandler := handlers.NewIncidentHandler(incidentService)
+	availabilityHandler := handlers.NewAvailabilityHandler(incidentService, alertService)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -30,6 +34,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string,
 		rules.GET("", ruleHandler.GetAllRules)
 		rules.GET("/:id", ruleHandler.GetRuleByID)
 		rules.PUT("/:id", ruleHandler.UpdateRule)
+		rules.PATCH("/:id/enabled", ruleHandler.SetEnabled)
 		rules.DELETE("/:id", ruleHandler.DeleteRule)
 	}
 
@@ -56,6 +61,20 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string,
 		incidentsAuth.GET("", incidentHandler.GetAllIncidents)
 		incidentsAuth.GET("/:id", incidentHandler.GetIncidentByID)
 		incidentsAuth.PATCH("/:id/status", incidentHandler.UpdateStatus)
+		// Any authenticated user may hit this; the service enforces that the
+		// caller is the guard assigned to the incident (Requirement 6.1).
+		incidentsAuth.POST("/:id/assistance", availabilityHandler.RequestAssistance)
+	}
+
+	// Availability alerts are an admin/supervisor concern (Requirements 7.5,
+	// 7.6). The codebase currently models ADMIN as the elevated role, so the
+	// group is guarded by AuthMiddleware + RequireRole(ADMIN).
+	availabilityAlerts := router.Group("/availability-alerts")
+	availabilityAlerts.Use(middleware.AuthMiddleware(jwtSecret), middleware.RequireRole(models.RoleAdmin))
+	{
+		availabilityAlerts.GET("", availabilityHandler.ListAvailabilityAlerts)
+		availabilityAlerts.PATCH("/:id/acknowledge", availabilityHandler.AcknowledgeAvailabilityAlert)
+		availabilityAlerts.PATCH("/:id/resolve", availabilityHandler.ResolveAvailabilityAlert)
 	}
 
 	incidentsAdmin := router.Group("/incidents")
@@ -70,5 +89,13 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string,
 	internal.Use(internalauth.RequireInternalService(internalKey))
 	{
 		internal.POST("", incidentHandler.CreateIncident)
+	}
+
+	// Internal enabled-rules endpoint — the decision-engine polls this with
+	// the shared internal-service key to refresh its rule cache.
+	internalRules := router.Group("/internal/rules")
+	internalRules.Use(internalauth.RequireInternalService(internalKey))
+	{
+		internalRules.GET("/enabled", ruleHandler.GetEnabledRules)
 	}
 }

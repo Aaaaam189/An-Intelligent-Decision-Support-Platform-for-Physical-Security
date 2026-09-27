@@ -4,8 +4,9 @@ import ContextMenu from "./ContextMenu";
 
 const defaultProps = {
   position: { x: 100, y: 200 },
+  isActive: true,
   onDetails: vi.fn(),
-  onDeactivate: vi.fn(),
+  onToggleActive: vi.fn(),
   onClose: vi.fn(),
 };
 
@@ -41,11 +42,11 @@ describe("ContextMenu", () => {
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onDeactivate and onClose when Deactivate is clicked", () => {
+  it("calls onToggleActive and onClose when Deactivate is clicked", () => {
     localStorage.setItem("sentinel_role", "ADMIN");
     render(<ContextMenu {...defaultProps} />);
     fireEvent.click(screen.getByText("Deactivate"));
-    expect(defaultProps.onDeactivate).toHaveBeenCalledTimes(1);
+    expect(defaultProps.onToggleActive).toHaveBeenCalledTimes(1);
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
 

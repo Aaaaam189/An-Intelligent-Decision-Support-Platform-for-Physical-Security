@@ -23,6 +23,9 @@ func main() {
 	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "incident.created")
 	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "incident.status_changed")
 	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "alert.critical_unassigned")
+	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "alert.availability_created")
+	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "alert.availability_acknowledged")
+	rabbitmq.DeclareAndBindQueue(ch, cfg.ExchangeName, cfg.QueueName, "alert.availability_resolved")
 
 	analyticsService := services.NewAnalyticsService(database)
 

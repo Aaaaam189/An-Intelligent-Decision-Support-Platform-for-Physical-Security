@@ -3,13 +3,14 @@ package config
 import "github.com/spf13/viper"
 
 type Config struct {
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-	JWTSecret  string
-	ServerPort string
+	DBHost             string
+	DBPort             string
+	DBUser             string
+	DBPassword         string
+	DBName             string
+	JWTSecret          string
+	ServerPort         string
+	InternalServiceKey string
 }
 
 func Load() Config {
@@ -25,7 +26,8 @@ func Load() Config {
 		DBUser:     viper.GetString("DB_USER"),
 		DBPassword: viper.GetString("DB_PASSWORD"),
 		DBName:     viper.GetString("DB_NAME"),
-		JWTSecret:  viper.GetString("JWT_SECRET"),
-		ServerPort: viper.GetString("SERVER_PORT"),
+		JWTSecret:          viper.GetString("JWT_SECRET"),
+		ServerPort:         viper.GetString("SERVER_PORT"),
+		InternalServiceKey: viper.GetString("INTERNAL_SERVICE_KEY"),
 	}
 }

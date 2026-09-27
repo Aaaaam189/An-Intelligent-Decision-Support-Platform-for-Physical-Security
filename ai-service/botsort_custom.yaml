@@ -1,0 +1,24 @@
+# BoT-SORT tracker config aligned with current ultralytics schema.
+# Custom-tuned values preserved; new required fields added.
+tracker_type: botsort
+
+# association thresholds (your tuned values)
+track_high_thresh: 0.4
+track_low_thresh: 0.1
+new_track_thresh: 0.4
+track_buffer: 90
+match_thresh: 0.7
+fuse_score: True          # required by current ultralytics BoT-SORT
+
+# global motion compensation
+gmc_method: sparseOptFlow
+
+# ReID / appearance
+# with_reid runs an appearance-embedding net on every tracked box every frame.
+# For person tracking, BoT-SORT's motion model + IoU matching + sparseOptFlow
+# GMC usually keep ids stable without it, and turning it off is a big speed win.
+# If you see id-switching on people who cross/occlude each other, flip back to True.
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+with_reid: False
+model: auto

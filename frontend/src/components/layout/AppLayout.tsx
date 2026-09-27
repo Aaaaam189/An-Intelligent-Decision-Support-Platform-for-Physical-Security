@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Outlet } from "react-router-dom";
 import { colors, fontFamily } from "../../constants/theme";
 import Sidebar from "./Sidebar";
+import ChatWidget from "../assistant/ChatWidget";
 
 export default function AppLayout() {
   const containerStyle: CSSProperties = {
@@ -24,6 +25,7 @@ export default function AppLayout() {
       <main style={mainStyle}>
         <Outlet />
       </main>
+      <ChatWidget />
     </div>
   );
 }

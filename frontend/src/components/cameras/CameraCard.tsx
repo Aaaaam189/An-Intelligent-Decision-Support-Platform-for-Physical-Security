@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { colors, borderRadius, fontFamily, fontSizes } from "../../constants/theme";
 import { truncateName } from "../../utils/formatters";
 import type { Camera } from "../../types/camera.types";
+import { cameraStreamUrl } from "../../constants/stream";
 
 interface CameraCardProps {
   camera: Camera;
@@ -82,23 +83,32 @@ export default function CameraCard({ camera, onMenuClick }: CameraCardProps) {
   return (
     <div style={cardStyle}>
       <div style={thumbnailContainerStyle}>
-        {camera.streamUrl ? (
-          <img
-            src={camera.streamUrl}
-            alt={`${camera.name} thumbnail`}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            onError={(e) => {
-              const target = e.currentTarget;
-              target.style.display = "none";
-              target.parentElement?.querySelector<HTMLElement>(".camera-placeholder")?.style.removeProperty("display");
-            }}
-          />
-        ) : null}
+        {/* Live annotated MJPEG stream from the ai-service (detection boxes).
+            Falls back to the raw streamUrl, then to the placeholder icon. */}
+        <img
+          src={cameraStreamUrl(camera.id)}
+          alt={`${camera.name} live`}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (camera.streamUrl && target.dataset.fellBack !== "true") {
+              // Fall back once to the raw stream URL.
+              target.dataset.fellBack = "true";
+              target.src = camera.streamUrl;
+              return;
+            }
+            // No stream available: hide the image, show the placeholder icon.
+            target.style.display = "none";
+            target.parentElement
+              ?.querySelector<HTMLElement>(".camera-placeholder")
+              ?.style.removeProperty("display");
+          }}
+        />
         <svg
           className="camera-placeholder"
           style={{
             ...cameraIconStyle,
-            display: camera.streamUrl ? "none" : "block",
+            display: "none",
           }}
           viewBox="0 0 24 24"
           fill="none"

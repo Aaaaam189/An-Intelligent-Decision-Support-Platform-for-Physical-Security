@@ -22,7 +22,6 @@ require (
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.30.1 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
@@ -57,7 +56,10 @@ require (
 )
 
 require (
+	github.com/go-playground/validator/v10 v10.30.1
 	github.com/rabbitmq/amqp091-go v1.12.0
+	gorm.io/datatypes v1.2.7
+	pgregory.net/rapid v1.3.0
 	sentinelai/shared v0.0.0
 )
 

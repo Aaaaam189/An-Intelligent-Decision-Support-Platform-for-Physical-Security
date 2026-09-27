@@ -13,7 +13,7 @@ func main() {
 	database := db.Connect(cfg)
 
 	router := gin.Default()
-	routes.SetupRoutes(router, database, cfg.JWTSecret)
+	routes.SetupRoutes(router, database, cfg.JWTSecret, cfg.InternalServiceKey)
 
 	router.Run(":" + cfg.ServerPort)
 }

@@ -29,6 +29,25 @@ type alertPayload struct {
 	Message    string    `json:"message"`
 }
 
+// availabilityAlertPayload mirrors the availability alert lifecycle events
+// published by the incident-service on alert.availability_created,
+// alert.availability_acknowledged, and alert.availability_resolved. Only the
+// fields relevant to the phase of the lifecycle are populated per message.
+type availabilityAlertPayload struct {
+	ID                   uuid.UUID  `json:"id"`
+	TriggeringIncidentID uuid.UUID  `json:"triggeringIncidentId"`
+	ZoneID               *uuid.UUID `json:"zoneId"`
+	Priority             string     `json:"priority"`
+	Message              string     `json:"message"`
+	Status               string     `json:"status"`
+	AcknowledgedBy       *uuid.UUID `json:"acknowledgedBy"`
+	AcknowledgedAt       *time.Time `json:"acknowledgedAt"`
+	ResolvedBy           *uuid.UUID `json:"resolvedBy"`
+	ResolvedAt           *time.Time `json:"resolvedAt"`
+	ResponseActions      string     `json:"responseActions"`
+	CreatedAt            *time.Time `json:"createdAt"`
+}
+
 func Start(ch *amqp.Channel, queueName string, svc *services.AnalyticsService) {
 	msgs, err := ch.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
@@ -38,6 +57,14 @@ func Start(ch *amqp.Channel, queueName string, svc *services.AnalyticsService) {
 	log.Println("analytics-worker: waiting for events...")
 
 	for msg := range msgs {
+		switch msg.RoutingKey {
+		case "alert.availability_created",
+			"alert.availability_acknowledged",
+			"alert.availability_resolved":
+			handleAvailabilityAlert(msg, svc)
+			continue
+		}
+
 		if msg.RoutingKey == "alert.critical_unassigned" {
 			var alert alertPayload
 			if err := json.Unmarshal(msg.Body, &alert); err != nil {
@@ -88,4 +115,65 @@ func Start(ch *amqp.Channel, queueName string, svc *services.AnalyticsService) {
 
 		msg.Ack(false)
 	}
+}
+
+// handleAvailabilityAlert persists and keeps the analytics copy of an
+// availability alert in sync with the source-of-truth incident-service by
+// consuming the create/acknowledge/resolve lifecycle events (Requirement 7.4).
+func handleAvailabilityAlert(msg amqp.Delivery, svc *services.AnalyticsService) {
+	var payload availabilityAlertPayload
+	if err := json.Unmarshal(msg.Body, &payload); err != nil {
+		log.Printf("failed to parse availability alert (%s), discarding: %v", msg.RoutingKey, err)
+		msg.Nack(false, false)
+		return
+	}
+
+	if payload.ID == uuid.Nil {
+		log.Printf("availability alert (%s) missing id, discarding", msg.RoutingKey)
+		msg.Nack(false, false)
+		return
+	}
+
+	var err error
+	switch msg.RoutingKey {
+	case "alert.availability_created":
+		createdAt := time.Now()
+		if payload.CreatedAt != nil {
+			createdAt = *payload.CreatedAt
+		}
+		status := models.AvailabilityAlertStatus(payload.Status)
+		if status == "" {
+			status = models.AvailabilityAlertStatusOpen
+		}
+		err = svc.SaveAvailabilityAlert(models.AvailabilityAlert{
+			ID:                   payload.ID,
+			TriggeringIncidentID: payload.TriggeringIncidentID,
+			ZoneID:               payload.ZoneID,
+			Priority:             payload.Priority,
+			Message:              payload.Message,
+			Status:               status,
+			ResponseActions:      payload.ResponseActions,
+			CreatedAt:            createdAt,
+		})
+	case "alert.availability_acknowledged":
+		acknowledgedAt := time.Now()
+		if payload.AcknowledgedAt != nil {
+			acknowledgedAt = *payload.AcknowledgedAt
+		}
+		err = svc.AcknowledgeAvailabilityAlert(payload.ID, payload.AcknowledgedBy, acknowledgedAt)
+	case "alert.availability_resolved":
+		resolvedAt := time.Now()
+		if payload.ResolvedAt != nil {
+			resolvedAt = *payload.ResolvedAt
+		}
+		err = svc.ResolveAvailabilityAlert(payload.ID, payload.ResolvedBy, resolvedAt)
+	}
+
+	if err != nil {
+		log.Printf("failed to sync availability alert (%s): %v", msg.RoutingKey, err)
+		msg.Nack(false, true)
+		return
+	}
+
+	msg.Ack(false)
 }

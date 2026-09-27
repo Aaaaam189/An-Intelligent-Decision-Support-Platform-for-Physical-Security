@@ -7,7 +7,7 @@ const mockIncident = (overrides: Partial<Incident> = {}): Incident => ({
   id: "inc-1",
   cameraId: "cam-1",
   zoneId: "zone-1",
-  type: "UNAUTHORIZED_ACCESS",
+  type: "WEAPON_DETECTED",
   priority: "CRITICAL",
   riskScore: 90,
   status: "PENDING",
@@ -29,13 +29,13 @@ describe("CriticalAlertsBanner", () => {
 
   it("renders incident type for each alert", () => {
     const incidents = [
-      mockIncident({ id: "inc-1", type: "UNAUTHORIZED_ACCESS" }),
+      mockIncident({ id: "inc-1", type: "WEAPON_DETECTED" }),
       mockIncident({ id: "inc-2", type: "CROWD_OVERFLOW" }),
     ];
 
     render(<CriticalAlertsBanner incidents={incidents} />);
 
-    expect(screen.getByText("UNAUTHORIZED ACCESS")).toBeInTheDocument();
+    expect(screen.getByText("WEAPON DETECTED")).toBeInTheDocument();
     expect(screen.getByText("CROWD OVERFLOW")).toBeInTheDocument();
   });
 

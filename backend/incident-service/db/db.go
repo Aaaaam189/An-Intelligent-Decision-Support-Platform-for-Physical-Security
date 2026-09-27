@@ -21,9 +21,20 @@ func Connect(cfg config.Config) *gorm.DB {
 		panic("failed to connect to database: " + err.Error())
 	}
 
-	err = db.AutoMigrate(&models.Rule{}, &models.Shift{}, &models.Incident{})
+	err = db.AutoMigrate(
+		&models.Rule{},
+		&models.RuleTargetZone{},
+		&models.Shift{},
+		&models.Incident{},
+		&models.AssistanceRequest{},
+		&models.AvailabilityAlert{},
+	)
 	if err != nil {
 		panic("failed to migrate database: " + err.Error())
+	}
+
+	if err := BackfillRuleIncidentType(db); err != nil {
+		panic("failed to backfill rule incident types: " + err.Error())
 	}
 
 	return db

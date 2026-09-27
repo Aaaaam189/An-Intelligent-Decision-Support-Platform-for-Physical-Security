@@ -75,27 +75,26 @@ describe("CameraCard", () => {
     expect(onMenuClick).toHaveBeenCalledTimes(1);
   });
 
-  it("shows placeholder icon when streamUrl is empty", () => {
-    const noStreamCamera: Camera = {
-      ...mockCamera,
-      streamUrl: "",
-    };
+  it("renders the placeholder icon (hidden until the stream fails)", () => {
     const onMenuClick = vi.fn();
     const { container } = render(
-      <CameraCard camera={noStreamCamera} onMenuClick={onMenuClick} />
+      <CameraCard camera={mockCamera} onMenuClick={onMenuClick} />
     );
 
-    const svg = container.querySelector("svg");
+    // The placeholder starts hidden; it's revealed only when the live stream
+    // and raw-stream fallback both fail to load.
+    const svg = container.querySelector("svg.camera-placeholder");
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveStyle({ display: "block" });
+    expect(svg).toHaveStyle({ display: "none" });
   });
 
-  it("renders an img element when streamUrl is provided", () => {
+  it("renders the live stream img pointing at the ai-service stream URL", () => {
     const onMenuClick = vi.fn();
     render(<CameraCard camera={mockCamera} onMenuClick={onMenuClick} />);
 
-    const img = screen.getByAltText(`${mockCamera.name} thumbnail`);
+    const img = screen.getByAltText(`${mockCamera.name} live`);
     expect(img).toBeInTheDocument();
-    expect(img).toHaveAttribute("src", mockCamera.streamUrl);
+    // Points at the ai-service MJPEG stream keyed by camera id, not the raw URL.
+    expect(img.getAttribute("src")).toContain(`/stream/${mockCamera.id}`);
   });
 });
