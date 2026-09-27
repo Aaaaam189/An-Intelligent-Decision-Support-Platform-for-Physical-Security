@@ -4,7 +4,7 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
-import { getRules, createRule, updateRule, deleteRule } from "../api/rules.api";
+import { getRules, createRule, updateRule, setRuleEnabled, deleteRule } from "../api/rules.api";
 import type { Rule, CreateRuleRequest, UpdateRuleRequest } from "../types/rule.types";
 
 export interface UseRulesReturn {
@@ -49,6 +49,21 @@ export function useUpdateRule(): UseMutationResult<
 
   return useMutation<Rule, Error, { id: string; data: UpdateRuleRequest }>({
     mutationFn: ({ id, data }) => updateRule(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rules"] });
+    },
+  });
+}
+
+export function useSetRuleEnabled(): UseMutationResult<
+  Rule,
+  Error,
+  { id: string; enabled: boolean }
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation<Rule, Error, { id: string; enabled: boolean }>({
+    mutationFn: ({ id, enabled }) => setRuleEnabled(id, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rules"] });
     },

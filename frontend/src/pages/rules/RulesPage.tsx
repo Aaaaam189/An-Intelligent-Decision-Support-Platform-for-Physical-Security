@@ -3,6 +3,7 @@ import {
   useRules,
   useCreateRule,
   useUpdateRule,
+  useSetRuleEnabled,
   useDeleteRule,
 } from "../../hooks/useRules";
 import { useZones } from "../../hooks/useZones";
@@ -118,6 +119,7 @@ export default function RulesPage() {
   const { zones } = useZones();
   const createMutation = useCreateRule();
   const updateMutation = useUpdateRule();
+  const setEnabledMutation = useSetRuleEnabled();
   const deleteMutation = useDeleteRule();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -588,6 +590,19 @@ export default function RulesPage() {
                 <td style={tdStyle}>{rule.enabled ? "Yes" : "No"}</td>
                 <td style={tdStyle}>{formatDate(rule.createdAt)}</td>
                 <td style={tdStyle}>
+                  <button
+                    style={editButtonStyle}
+                    onClick={() =>
+                      setEnabledMutation.mutate({
+                        id: rule.id,
+                        enabled: !rule.enabled,
+                      })
+                    }
+                    type="button"
+                    disabled={setEnabledMutation.isPending}
+                  >
+                    {rule.enabled ? "Disable" : "Enable"}
+                  </button>
                   <button
                     style={editButtonStyle}
                     onClick={() => openEditModal(rule)}

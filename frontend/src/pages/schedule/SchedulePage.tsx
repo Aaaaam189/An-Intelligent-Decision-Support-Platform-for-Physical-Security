@@ -158,23 +158,38 @@ function AdminScheduleView() {
     });
   }
 
-  // Group shifts by date for calendar-style display
-  const shiftsByDate = new Map<string, typeof shifts>();
+  // Group shifts by date, then within each date by time window, then list the
+  // individual shifts. Dates and time buckets are ordered chronologically.
+  const shiftsByDate = new Map<string, Map<string, typeof shifts>>();
+  const dateStart = new Map<string, number>();
+  const timeBucketStart = new Map<string, number>();
   shifts.forEach((shift) => {
-    const dateKey = new Date(shift.startTime).toLocaleDateString("en-US", {
+    const start = new Date(shift.startTime);
+    const dateKey = start.toLocaleDateString("en-US", {
       weekday: "short",
       year: "numeric",
       month: "short",
       day: "numeric",
     });
+    const timeKey = `${formatTime(shift.startTime)} – ${formatTime(shift.endTime)}`;
+
     if (!shiftsByDate.has(dateKey)) {
-      shiftsByDate.set(dateKey, []);
+      shiftsByDate.set(dateKey, new Map());
+      dateStart.set(
+        dateKey,
+        new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
+      );
     }
-    shiftsByDate.get(dateKey)!.push(shift);
+    const byTime = shiftsByDate.get(dateKey)!;
+    if (!byTime.has(timeKey)) {
+      byTime.set(timeKey, []);
+      timeBucketStart.set(`${dateKey}|${timeKey}`, start.getTime());
+    }
+    byTime.get(timeKey)!.push(shift);
   });
 
   const sortedDates = Array.from(shiftsByDate.keys()).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime()
+    (a, b) => (dateStart.get(a) ?? 0) - (dateStart.get(b) ?? 0)
   );
 
   return (
@@ -272,42 +287,52 @@ function AdminScheduleView() {
 
       {!isLoading && !error && sortedDates.length > 0 && (
         <div style={calendarContainerStyle}>
-          {sortedDates.map((date) => (
-            <div key={date} style={dayColumnStyle}>
-              <h3 style={dayHeadingStyle}>{date}</h3>
-              {shiftsByDate.get(date)!.map((shift) => (
-                <div key={shift.id} style={shiftCardStyle}>
-                  <p style={shiftGuardStyle}>
-                    {guardMap.get(shift.guardId) || "Unknown Guard"}
-                  </p>
-                  <p style={shiftZoneStyle}>
-                    {zoneMap.get(shift.zoneId) || "Unknown Zone"}
-                  </p>
-                  <p style={shiftTimeStyle}>
-                    {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
-                  </p>
-                  {isShiftEditable(shift) && (
-                    <div style={shiftActionsStyle}>
-                      <button
-                        type="button"
-                        style={shiftEditBtnStyle}
-                        onClick={() => openEditModal(shift)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        style={shiftDeleteBtnStyle}
-                        onClick={() => setDeleteTarget(shift)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
+          {sortedDates.map((date) => {
+            const byTime = shiftsByDate.get(date)!;
+            const sortedTimes = Array.from(byTime.keys()).sort(
+              (a, b) =>
+                (timeBucketStart.get(`${date}|${a}`) ?? 0) -
+                (timeBucketStart.get(`${date}|${b}`) ?? 0)
+            );
+            return (
+              <div key={date} style={dayColumnStyle}>
+                <h3 style={dayHeadingStyle}>{date}</h3>
+                {sortedTimes.map((time) => (
+                  <div key={time}>
+                    <p style={timeHeadingStyle}>{time}</p>
+                    {byTime.get(time)!.map((shift) => (
+                      <div key={shift.id} style={shiftCardStyle}>
+                        <p style={shiftZoneStyle}>
+                          {zoneMap.get(shift.zoneId) || "Unknown Zone"}
+                        </p>
+                        <p style={shiftGuardStyle}>
+                          {guardMap.get(shift.guardId) || "Unknown Guard"}
+                        </p>
+                        {isShiftEditable(shift) && (
+                          <div style={shiftActionsStyle}>
+                            <button
+                              type="button"
+                              style={shiftEditBtnStyle}
+                              onClick={() => openEditModal(shift)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              style={shiftDeleteBtnStyle}
+                              onClick={() => setDeleteTarget(shift)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -583,6 +608,16 @@ const dayHeadingStyle: CSSProperties = {
   marginBottom: "12px",
   paddingBottom: "8px",
   borderBottom: `1px solid ${colors.darkGray}`,
+};
+
+const timeHeadingStyle: CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 600,
+  color: colors.black,
+  opacity: 0.7,
+  fontFamily,
+  marginTop: "12px",
+  marginBottom: "6px",
 };
 
 const shiftCardStyle: CSSProperties = {

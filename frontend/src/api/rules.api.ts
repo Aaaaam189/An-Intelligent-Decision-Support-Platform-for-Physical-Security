@@ -23,6 +23,16 @@ export async function updateRule(
   return response.data;
 }
 
+export async function setRuleEnabled(
+  id: string,
+  enabled: boolean
+): Promise<Rule> {
+  const response = await apiClient.patch<Rule>(`/api/rules/${id}/enabled`, {
+    enabled,
+  });
+  return response.data;
+}
+
 export async function deleteRule(id: string): Promise<void> {
   await apiClient.delete(`/api/rules/${id}`);
 }

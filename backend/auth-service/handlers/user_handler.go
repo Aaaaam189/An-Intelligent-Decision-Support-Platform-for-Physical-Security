@@ -107,10 +107,14 @@ func (h *UserHandler) GetInactiveUsers(c *gin.Context) {
 }
 
 func (h *UserHandler) DeactivateUser(c *gin.Context) {
+	// The body is optional (only an optional reactivateAt). Bind it when
+	// present, but tolerate an empty body (immediate, indefinite deactivation).
 	var req dto.DeactivateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	user, err := h.Service.DeactivateUser(c.Param("id"), req)

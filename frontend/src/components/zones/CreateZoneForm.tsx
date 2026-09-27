@@ -24,7 +24,9 @@ export default function CreateZoneForm({
   }, [isCreating, createError]);
 
   const trimmedName = name.trim();
-  const isSubmitDisabled = trimmedName.length === 0 || isCreating;
+  // Only disable when there's no name to submit. Do not gate on isCreating so a
+  // stuck/hung mutation can never leave the button permanently unclickable.
+  const isSubmitDisabled = trimmedName.length === 0;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -84,7 +86,6 @@ export default function CreateZoneForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Enter zone name"
-          disabled={isCreating}
           style={inputStyle}
           aria-label="Zone name"
         />
