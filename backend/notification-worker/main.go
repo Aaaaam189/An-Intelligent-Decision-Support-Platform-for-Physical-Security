@@ -37,6 +37,7 @@ func main() {
 		"notification.incident_assigned",
 		"notification.incident_resolved",
 		"notification.incident_unassigned",
+		"notification.incident_escalated",
 		"notification.assistance",
 		"alert.availability_created",
 	} {

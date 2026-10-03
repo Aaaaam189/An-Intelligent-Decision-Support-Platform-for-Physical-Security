@@ -1,0 +1,26 @@
+# BoT-SORT variant that starts tracks on LOWER-confidence detections.
+# Same as botsort_custom.yaml except for the two thresholds below.
+#
+# Why: a detection only becomes a tracked object (gets an id, shows up in the
+# results, can be counted) if its score reaches new_track_thresh. With 0.4, small
+# or distant people/vehicles that the detector scores 0.25-0.4 are silently
+# ignored, even if the detector's own conf is set lower. This file lets them in.
+# Trade-off: more false detections (and therefore more false "person" events).
+#
+# Use it per model with the PERSON_TRACKER / VEHICLE_TRACKER env variables, and
+# lower PERSON_CONF_THRESHOLD / VEHICLE_CONF to match (e.g. 0.25).
+tracker_type: botsort
+
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 90
+match_thresh: 0.7
+fuse_score: True
+
+gmc_method: sparseOptFlow
+
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+with_reid: False
+model: auto

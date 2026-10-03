@@ -1,5 +1,9 @@
 import apiClient from "./client";
-import type { Incident, IncidentStatus } from "../types/incident.types";
+import type {
+  Incident,
+  IncidentEvent,
+  IncidentStatus,
+} from "../types/incident.types";
 
 export async function getIncidents(): Promise<Incident[]> {
   const response = await apiClient.get<Incident[]>("/api/incidents");
@@ -8,6 +12,13 @@ export async function getIncidents(): Promise<Incident[]> {
 
 export async function getIncidentById(id: string): Promise<Incident> {
   const response = await apiClient.get<Incident>(`/api/incidents/${id}`);
+  return response.data;
+}
+
+export async function getIncidentEvents(id: string): Promise<IncidentEvent[]> {
+  const response = await apiClient.get<IncidentEvent[]>(
+    `/api/incidents/${id}/events`
+  );
   return response.data;
 }
 

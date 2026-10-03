@@ -8,29 +8,34 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	"sentinelai/decision-engine/client"
-	"sentinelai/decision-engine/cooldown"
 	"sentinelai/decision-engine/models"
 	"sentinelai/decision-engine/rulecache"
 	"sentinelai/decision-engine/rules"
 )
 
 // Start consumes detection events and runs each through the pipeline:
-// validate -> evaluate -> cooldown -> create -> dead-letter.
+// filter -> validate -> evaluate -> ingest -> dead-letter.
+//
+// decision-engine no longer keeps its own cooldown. It only answers "does this
+// event match an enabled rule, and with what outcome?". Deciding whether that
+// opens a new incident or belongs to a situation that is already open (and
+// whether it escalates it) is incident-service's job: it owns the situation
+// state in its database, so it survives restarts of this service.
 //
 // For every delivery it:
 //  1. Parses the JSON body; a malformed body is discarded without requeue so
 //     it cannot poison the queue (Requirement 3.11).
-//  2. Validates required fields and the detection type; an invalid event is
+//  2. Acks and ignores presence-ended events (NO_PERSON / NO_VEHICLE). They are
+//     informational; the situation lifecycle is driven by heartbeats.
+//  3. Validates required fields and the detection type; an invalid event is
 //     logged with its offending field and discarded without requeue
 //     (Requirement 3.11).
-//  3. Refreshes the engine from the current rule-cache snapshot and evaluates;
+//  4. Refreshes the engine from the current rule-cache snapshot and evaluates;
 //     when no enabled rule matches, it acks and creates nothing
 //     (Requirement 3.3).
-//  4. Applies cooldown suppression per (zoneId, detectionType); a suppressed
-//     event is acked and creates no incident (Requirements 4.2, 4.3).
-//  5. Creates the incident with bounded retry; on success it starts the
-//     cooldown window for the (zone, type) and acks (Requirements 3.1, 3.4,
-//     4.2).
+//  5. Sends the event and the winning rule outcome to incident-service with
+//     bounded retry; it opens or updates an incident and the message is acked
+//     (Requirements 3.1, 3.4).
 //  6. On retry exhaustion (client.ErrRetriesExhausted), it nacks without
 //     requeue so the broker routes the message to the configured dead-letter
 //     exchange (Requirements 3.12, 9.1).
@@ -39,7 +44,6 @@ func Start(
 	queueName string,
 	engine *rules.Engine,
 	ruleCache *rulecache.Cache,
-	cooldownTracker *cooldown.Tracker,
 	incidentClient *client.IncidentClient,
 ) {
 	msgs, err := ch.Consume(
@@ -67,6 +71,12 @@ func Start(
 			continue
 		}
 
+		// Presence-ended events carry no rule-relevant information.
+		if event.IsPresenceEnd() {
+			msg.Ack(false)
+			continue
+		}
+
 		// Reject invalid events (missing required fields or unknown type)
 		// without requeue, logging the offending field (Requirement 3.11).
 		if offendingField, valid := event.Validate(); !valid {
@@ -89,37 +99,32 @@ func Start(
 			continue
 		}
 
-		// Suppress repeat incidents for the same ongoing situation within the
-		// cooldown window (Requirements 4.2, 4.3).
-		if cooldownTracker.ShouldSuppress(event.CameraID, event.ZoneID, event.Type) {
-			log.Printf("event=%s camera=%s zone=%s -> suppressed by cooldown, no incident",
-				event.Type, event.CameraID, event.ZoneID)
-			msg.Ack(false)
-			continue
-		}
-
-		log.Printf("event=%s zone=%s -> incident type=%s priority=%s rule=%s",
-			event.Type, event.ZoneID, decision.IncidentType, decision.Priority, decision.RuleID)
-
-		if err := incidentClient.CreateIncident(event, decision); err != nil {
+		action, err := incidentClient.IngestEvent(event, decision)
+		if err != nil {
 			if errors.Is(err, client.ErrRetriesExhausted) {
-				// Creation failed after exhausting retries: route to the
+				// Ingest failed after exhausting retries: route to the
 				// dead-letter exchange by nacking without requeue
 				// (Requirements 3.12, 9.1).
-				log.Printf("incident creation exhausted retries, dead-lettering: %v", err)
+				log.Printf("event ingest exhausted retries, dead-lettering: %v", err)
 				msg.Nack(false, false)
 				continue
 			}
 
 			// Any other (non-terminal) error: requeue for another attempt.
-			log.Printf("failed to create incident, will retry: %v", err)
+			log.Printf("failed to ingest event, will retry: %v", err)
 			msg.Nack(false, true)
 			continue
 		}
 
-		// Incident created: start the cooldown window for this (zone, type)
-		// so subsequent duplicates are suppressed (Requirements 3.1, 3.4, 4.2).
-		cooldownTracker.Record(event.CameraID, event.ZoneID, event.Type)
+		if event.Heartbeat && action == "UPDATED" {
+			// Heartbeats arrive every few seconds per camera; keep the log quiet.
+			msg.Ack(false)
+			continue
+		}
+
+		log.Printf("event=%s camera=%s zone=%s heartbeat=%t -> %s incident type=%s priority=%s rule=%s",
+			event.Type, event.CameraID, event.ZoneID, event.Heartbeat, action,
+			decision.IncidentType, decision.Priority, decision.RuleID)
 		msg.Ack(false)
 	}
 }

@@ -26,6 +26,7 @@ func Connect(cfg config.Config) *gorm.DB {
 		&models.RuleTargetZone{},
 		&models.Shift{},
 		&models.Incident{},
+		&models.IncidentEvent{},
 		&models.AssistanceRequest{},
 		&models.AvailabilityAlert{},
 	)

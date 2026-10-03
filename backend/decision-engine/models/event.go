@@ -6,18 +6,42 @@ import "time"
 // sentinelai.events exchange.
 //
 // Weapon events carry cameraId, zoneId, type=WEAPON_DETECTED, weaponClass,
-// confidence, timestamp and snapshotPath. Person/vehicle events carry
-// cameraId, zoneId, type, currentCount and timestamp. Metadata is retained
-// as a flexible bag for anything event-type specific and for forward
-// compatibility.
+// confidence, timestamp, snapshotPath, and (when the weapon is held) a
+// linkedTrackId of the person holding it. Person/vehicle events carry
+// cameraId, zoneId, type, currentCount and timestamp. Person events may also
+// carry a linkedTrackId ("vehicle-4") when the person appeared next to a
+// stationary vehicle. Metadata is retained as a flexible bag for anything
+// event-type specific and for forward compatibility.
+//
+// Person/vehicle events are sent when presence starts and then repeated as
+// heartbeats (heartbeat=true) while it continues, so the backend can tell that
+// a situation is still going.
 type DetectionEvent struct {
-	CameraID     string                 `json:"cameraId"`
-	ZoneID       string                 `json:"zoneId"`
-	Type         string                 `json:"type"` // PERSON_DETECTED, WEAPON_DETECTED, VEHICLE_DETECTED
-	WeaponClass  string                 `json:"weaponClass,omitempty"`
-	CurrentCount int                    `json:"currentCount,omitempty"`
-	Timestamp    time.Time              `json:"timestamp"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	CameraID     string    `json:"cameraId"`
+	ZoneID       string    `json:"zoneId"`
+	Type         string    `json:"type"` // PERSON_DETECTED, WEAPON_DETECTED, VEHICLE_DETECTED
+	WeaponClass  string    `json:"weaponClass,omitempty"`
+	CurrentCount int       `json:"currentCount,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+
+	Confidence   float64 `json:"confidence,omitempty"`
+	SnapshotPath string  `json:"snapshotPath,omitempty"`
+	// TrackID identifies the tracked object this event is about ("weapon-3",
+	// "person-12"); LinkedTrackID points at a related object.
+	TrackID       string `json:"trackId,omitempty"`
+	LinkedTrackID string `json:"linkedTrackId,omitempty"`
+	// Heartbeat is true for the periodic "still present" updates.
+	Heartbeat bool `json:"heartbeat,omitempty"`
+
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// IsPresenceEnd reports whether the event only says that presence ended
+// (NO_PERSON / NO_VEHICLE). These are informational: the situation lifecycle is
+// driven by heartbeats and the grace period, not by "left" events, so they are
+// acknowledged and ignored instead of being rejected as invalid.
+func (e DetectionEvent) IsPresenceEnd() bool {
+	return e.Type == "NO_PERSON" || e.Type == "NO_VEHICLE"
 }
 
 // ValidDetectionTypes is the closed set of detection types the

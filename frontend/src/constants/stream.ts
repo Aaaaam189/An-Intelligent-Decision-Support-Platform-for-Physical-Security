@@ -11,3 +11,9 @@ export const AI_STREAM_BASE_URL =
 export function cameraStreamUrl(cameraId: string): string {
   return `${AI_STREAM_BASE_URL}/stream/${cameraId}`;
 }
+
+// URL of an evidence image (annotated frame) saved by the ai-service. Incidents
+// store only the file name; the ai-service serves it at /snapshots/<file>.
+export function snapshotUrl(fileName: string): string {
+  return `${AI_STREAM_BASE_URL}/snapshots/${encodeURIComponent(fileName)}`;
+}

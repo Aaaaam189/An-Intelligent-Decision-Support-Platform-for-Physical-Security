@@ -9,7 +9,6 @@ import (
 	"sentinelai/decision-engine/client"
 	"sentinelai/decision-engine/config"
 	"sentinelai/decision-engine/consumer"
-	"sentinelai/decision-engine/cooldown"
 	"sentinelai/decision-engine/rulecache"
 	"sentinelai/decision-engine/rules"
 	"sentinelai/shared/rabbitmq"
@@ -57,9 +56,9 @@ func main() {
 	// effect without a restart.
 	engine := rules.NewEngine(nil)
 
-	// Hot-reloadable rule cache and cooldown de-duplication tracker.
+	// Hot-reloadable rule cache. De-duplication is no longer done here: the
+	// incident-service groups events into situations (see its IngestEvent).
 	ruleCache := rulecache.New(cfg.IncidentServiceURL, cfg.InternalServiceKey, cfg.RulePollSeconds)
-	cooldownTracker := cooldown.NewTrackerSeconds(cfg.CooldownSeconds)
 
 	// Start the rule-cache poller before consuming so the snapshot is populated
 	// (an initial refresh runs synchronously inside Start) and subsequent rule
@@ -68,7 +67,7 @@ func main() {
 	go ruleCache.Start(ctx)
 
 	log.Println("decision-engine started")
-	consumer.Start(ch, cfg.QueueName, engine, ruleCache, cooldownTracker, incidentClient)
+	consumer.Start(ch, cfg.QueueName, engine, ruleCache, incidentClient)
 }
 
 // declareDeadLetterTopology declares the dead-letter exchange and a durable

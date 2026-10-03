@@ -60,6 +60,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string,
 	{
 		incidentsAuth.GET("", incidentHandler.GetAllIncidents)
 		incidentsAuth.GET("/:id", incidentHandler.GetIncidentByID)
+		incidentsAuth.GET("/:id/events", incidentHandler.GetIncidentEvents)
 		incidentsAuth.PATCH("/:id/status", incidentHandler.UpdateStatus)
 		// Any authenticated user may hit this; the service enforces that the
 		// caller is the guard assigned to the incident (Requirement 6.1).
@@ -89,6 +90,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, jwtSecret, internalKey string,
 	internal.Use(internalauth.RequireInternalService(internalKey))
 	{
 		internal.POST("", incidentHandler.CreateIncident)
+		internal.POST("/ingest", incidentHandler.IngestEvent)
 	}
 
 	// Internal enabled-rules endpoint — the decision-engine polls this with

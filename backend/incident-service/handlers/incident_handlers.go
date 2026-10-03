@@ -37,6 +37,44 @@ func (h *IncidentHandler) CreateIncident(c *gin.Context) {
 	c.JSON(http.StatusCreated, dto.ToIncidentResponse(*incident))
 }
 
+// IngestEvent is the internal endpoint decision-engine calls for every
+// rule-matched detection event. It opens a new incident or updates the open
+// situation for the camera+zone (see IncidentService.IngestEvent).
+func (h *IncidentHandler) IngestEvent(c *gin.Context) {
+	var req dto.IngestEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.Service.IngestEvent(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	status := http.StatusOK
+	if resp.Action == dto.IngestActionCreated {
+		status = http.StatusCreated
+	}
+	c.JSON(status, resp)
+}
+
+// GetIncidentEvents returns the incident's timeline, oldest first.
+func (h *IncidentHandler) GetIncidentEvents(c *gin.Context) {
+	events, err := h.Service.GetIncidentEvents(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := make([]dto.IncidentEventResponse, 0, len(events))
+	for _, e := range events {
+		response = append(response, dto.ToIncidentEventResponse(e))
+	}
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *IncidentHandler) GetAllIncidents(c *gin.Context) {
 	incidents, err := h.Service.GetAllIncidents()
 	if err != nil {

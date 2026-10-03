@@ -37,4 +37,32 @@ export interface Incident {
   assignedGuardId: string | null;
   createdAt: string;
   closedAt: string | null;
+  // Situation tracking. Optional so older payloads (and existing tests) that
+  // predate it still type-check.
+  contributingTypes?: string[];
+  peakPersonCount?: number;
+  peakVehicleCount?: number;
+  weaponCount?: number;
+  lastActivityAt?: string | null;
+  escalatedAt?: string | null;
+}
+
+// One entry of an incident's timeline ("what happened").
+export interface IncidentEvent {
+  id: string;
+  incidentId: string;
+  kind: "PERSON_DETECTED" | "VEHICLE_DETECTED" | "WEAPON_DETECTED" | string;
+  summary: string;
+  reason: string;
+  weaponClass: string | null;
+  confidence: number | null;
+  trackId: string | null;
+  linkedTrackId: string | null;
+  // File name of the evidence image; see snapshotUrl() in constants/stream.
+  snapshot: string | null;
+  ruleId: string | null;
+  incidentType: string;
+  priority: string;
+  escalated: boolean;
+  occurredAt: string;
 }

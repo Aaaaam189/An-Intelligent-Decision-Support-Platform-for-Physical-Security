@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"sentinelai/incident-service/config"
@@ -20,6 +22,7 @@ func main() {
 	rabbitmq.DeclareExchange(ch, cfg.ExchangeName)
 
 	incidentService := services.NewIncidentService(database, ch, cfg.ExchangeName)
+	incidentService.GracePeriod = time.Duration(cfg.IncidentGraceSeconds) * time.Second
 
 	router := gin.Default()
 	routes.SetupRoutes(router, database, cfg.JWTSecret, cfg.InternalServiceKey, incidentService)

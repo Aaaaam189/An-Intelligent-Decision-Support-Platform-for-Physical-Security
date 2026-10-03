@@ -195,5 +195,41 @@ func ToIncidentResponse(i models.Incident) IncidentResponse {
 		AssignedGuardID: i.AssignedGuardID,
 		CreatedAt:       i.CreatedAt,
 		ClosedAt:        i.ClosedAt,
+
+		ContributingTypes: contributingTypesOrEmpty(i.ContributingTypes),
+		PeakPersonCount:   i.PeakPersonCount,
+		PeakVehicleCount:  i.PeakVehicleCount,
+		WeaponCount:       i.WeaponCount,
+		LastActivityAt:    i.LastActivityAt,
+		EscalatedAt:       i.EscalatedAt,
+	}
+}
+
+// contributingTypesOrEmpty makes sure the JSON field is [] rather than null for
+// incidents created before situation tracking existed.
+func contributingTypesOrEmpty(t []string) []string {
+	if t == nil {
+		return []string{}
+	}
+	return t
+}
+
+func ToIncidentEventResponse(e models.IncidentEvent) IncidentEventResponse {
+	return IncidentEventResponse{
+		ID:            e.ID,
+		IncidentID:    e.IncidentID,
+		Kind:          e.Kind,
+		Summary:       e.Summary,
+		Reason:        e.Reason,
+		WeaponClass:   e.WeaponClass,
+		Confidence:    e.Confidence,
+		TrackID:       e.TrackID,
+		LinkedTrackID: e.LinkedTrackID,
+		Snapshot:      e.Snapshot,
+		RuleID:        e.RuleID,
+		IncidentType:  e.IncidentType,
+		Priority:      e.Priority,
+		Escalated:     e.Escalated,
+		OccurredAt:    e.OccurredAt,
 	}
 }

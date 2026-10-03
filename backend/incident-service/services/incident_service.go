@@ -19,10 +19,18 @@ type IncidentService struct {
 	DB           *gorm.DB
 	Channel      *amqp.Channel
 	ExchangeName string
+	// GracePeriod is how long an incident keeps absorbing events for its
+	// camera+zone after the last activity (see IngestEvent). It is set from
+	// INCIDENT_GRACE_SECONDS in main; the default below applies otherwise.
+	GracePeriod time.Duration
 }
 
+// defaultGracePeriod must stay comfortably above the ai-service heartbeat
+// interval (10s by default) so a live situation is never mistaken for a quiet one.
+const defaultGracePeriod = 120 * time.Second
+
 func NewIncidentService(db *gorm.DB, ch *amqp.Channel, exchangeName string) *IncidentService {
-	return &IncidentService{DB: db, Channel: ch, ExchangeName: exchangeName}
+	return &IncidentService{DB: db, Channel: ch, ExchangeName: exchangeName, GracePeriod: defaultGracePeriod}
 }
 
 func priorityRank(p models.IncidentPriority) int {
@@ -126,6 +134,13 @@ func (s *IncidentService) CreateIncident(req dto.CreateIncidentRequest) (*models
 			RiskScore: req.RiskScore,
 			RuleID:    req.RuleID,
 			Status:    models.StatusPending,
+
+			// Situation tracking: the incident starts with the type that opened it.
+			ContributingTypes: []string{string(req.Type)},
+			PeakPersonCount:   req.InitialPersonCount,
+			PeakVehicleCount:  req.InitialVehicleCount,
+			WeaponCount:       req.InitialWeaponCount,
+			LastActivityAt:    &now,
 		}
 
 		if len(shifts) == 0 {
@@ -372,7 +387,7 @@ func (s *IncidentService) publishIncidentCreated(incident models.Incident) {
 		"status":          incident.Status,
 		"assignedGuardId": incident.AssignedGuardID,
 		"createdAt":       incident.CreatedAt,
-		"closedAt":			 incident.ClosedAt,
+		"closedAt":        incident.ClosedAt,
 	}
 	_ = rabbitmq.Publish(s.Channel, s.ExchangeName, "incident.created", payload)
 }
@@ -487,16 +502,16 @@ func (s *IncidentService) UpdateStatus(id string, userID string, role models.App
 	})
 
 	if err != nil {
-			return nil, err
-		}
+		return nil, err
+	}
 
-		s.publishStatusChanged(updated)
+	s.publishStatusChanged(updated)
 
-		if resolving {
-			s.publishIncidentResolved(updated, userID)
-		}
+	if resolving {
+		s.publishIncidentResolved(updated, userID)
+	}
 
-		return &updated, nil
+	return &updated, nil
 }
 
 func (s *IncidentService) Reassign(id string, req dto.ReassignIncidentRequest) (*models.Incident, error) {

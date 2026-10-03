@@ -5,6 +5,7 @@ import {
   useUpdateIncidentStatus,
   useReassignIncident,
 } from "../../hooks/useIncidents";
+import { useIncidentEvents } from "../../hooks/useIncidentEvents";
 import { useActiveUsers } from "../../hooks/useUsers";
 import { useZones } from "../../hooks/useZones";
 import { useCameras } from "../../hooks/useCameras";
@@ -12,6 +13,9 @@ import { useRules } from "../../hooks/useRules";
 import StatusBadge from "../../components/ui/StatusBadge";
 import Modal from "../../components/ui/Modal";
 import Select from "../../components/ui/Select";
+import IncidentTimeline from "../../components/incidents/IncidentTimeline";
+import EvidenceGallery from "../../components/incidents/EvidenceGallery";
+import { formatObjectCounts } from "../../components/incidents/situation";
 import { PRIORITY_COLORS, STATUS_COLORS } from "../../constants/priority";
 import {
   colors,
@@ -57,6 +61,7 @@ export default function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { incident, isLoading, error } = useIncident(id ?? "");
+  const { events } = useIncidentEvents(id ?? "");
   const { users: guards } = useActiveUsers();
   const { zones } = useZones();
   const { cameras } = useCameras();
@@ -237,6 +242,35 @@ export default function IncidentDetailPage() {
         />
         <DetailField label="Created" value={formatDate(incident.createdAt)} />
         <DetailField label="Closed" value={formatDate(incident.closedAt)} />
+      </div>
+
+      {/* Situation: what this incident involves and how it evolved */}
+      <div style={situationSectionStyle}>
+        <h2 style={sectionHeadingStyle}>What happened</h2>
+        <div style={situationSummaryStyle}>
+          {formatObjectCounts(incident) && (
+            <DetailField label="Involves" value={formatObjectCounts(incident)} />
+          )}
+          {incident.contributingTypes && incident.contributingTypes.length > 1 && (
+            <DetailField
+              label="Situation progressed"
+              value={incident.contributingTypes.join(" → ")}
+            />
+          )}
+          {incident.escalatedAt && (
+            <DetailField
+              label="Escalated"
+              value={formatDate(incident.escalatedAt)}
+            />
+          )}
+        </div>
+        <IncidentTimeline events={events} />
+      </div>
+
+      {/* Evidence */}
+      <div style={situationSectionStyle}>
+        <h2 style={sectionHeadingStyle}>Evidence</h2>
+        <EvidenceGallery events={events} />
       </div>
 
       {/* Status Timeline */}
@@ -500,6 +534,18 @@ const detailValueStyle: CSSProperties = {
   fontSize: fontSizes.body,
   color: colors.black,
   fontWeight: 500,
+};
+
+// Situation ("what happened") + evidence
+const situationSectionStyle: CSSProperties = {
+  marginBottom: "40px",
+};
+
+const situationSummaryStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "32px",
+  marginBottom: "20px",
 };
 
 // Timeline

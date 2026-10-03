@@ -24,6 +24,10 @@ vi.mock("../../hooks/useIncidents", () => ({
   useReassignIncident: () => noopMutation(),
 }));
 
+vi.mock("../../hooks/useIncidentEvents", () => ({
+  useIncidentEvents: () => ({ events: [], isLoading: false, error: null }),
+}));
+
 vi.mock("../../hooks/useUsers", () => ({
   useActiveUsers: () => ({ users: [] }),
 }));

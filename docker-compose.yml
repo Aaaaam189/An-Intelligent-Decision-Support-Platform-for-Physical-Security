@@ -87,6 +87,9 @@ services:
       <<: *go-env
       DB_NAME: incident_db
       SERVER_PORT: "8083"
+      # How long a situation stays open after its last activity. Keep it above
+      # the ai-service HEARTBEAT_SECONDS.
+      INCIDENT_GRACE_SECONDS: ${INCIDENT_GRACE_SECONDS:-120}
     depends_on:
       mariadb: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -125,7 +128,6 @@ services:
       <<: *go-env
       QUEUE_NAME: decision-engine.detections
       ROUTING_KEY: "detection.#"
-      COOLDOWN_SECONDS: "300"
       INCIDENT_SERVICE_URL: http://incident-service:8083
     depends_on:
       rabbitmq: { condition: service_healthy }
@@ -167,10 +169,12 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       EXCHANGE_NAME: sentinelai.events
       MAX_CAMERAS: ${MAX_CAMERAS:-3}
+      HEARTBEAT_SECONDS: ${HEARTBEAT_SECONDS:-10}
       MJPEG_PORT: "8091"
     volumes:
       - ./videos:/videos:ro                       # camera sources, e.g. /videos/lobby.mp4
       - ./ai-service/runs:/app/runs:ro            # weapon_detector_v4/weights/best.pt
+      - snapshots:/app/alert_snapshots            # evidence images, served at :8091/snapshots/<file>
     ports:
       - "8091:8091"                               # annotated MJPEG streams
     depends_on:
@@ -207,3 +211,4 @@ networks:
 volumes:
   mariadb-data:
   rabbitmq-data:
+  snapshots:

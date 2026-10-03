@@ -84,6 +84,110 @@ func (c *IncidentClient) CreateIncident(event models.DetectionEvent, decision ru
 	return fmt.Errorf("%w: %v", ErrRetriesExhausted, lastErr)
 }
 
+type ingestEventPayload struct {
+	CameraID      string    `json:"cameraId"`
+	ZoneID        string    `json:"zoneId"`
+	DetectionType string    `json:"detectionType"`
+	IncidentType  string    `json:"incidentType"`
+	Priority      string    `json:"priority"`
+	RiskScore     float64   `json:"riskScore"`
+	RuleID        string    `json:"ruleId,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
+	CurrentCount  int       `json:"currentCount"`
+	WeaponClass   *string   `json:"weaponClass,omitempty"`
+	Confidence    *float64  `json:"confidence,omitempty"`
+	TrackID       *string   `json:"trackId,omitempty"`
+	LinkedTrackID *string   `json:"linkedTrackId,omitempty"`
+	Snapshot      *string   `json:"snapshot,omitempty"`
+	Heartbeat     bool      `json:"heartbeat"`
+}
+
+// IngestEvent posts a rule-matched detection event to incident-service, which
+// decides whether it opens a new incident or updates the situation already
+// open for the camera and zone. It uses the same bounded retry/backoff as
+// CreateIncident and returns the action taken ("CREATED", "UPDATED" or
+// "IGNORED") on success. If every attempt fails, the error wraps
+// ErrRetriesExhausted so the caller can dead-letter the message.
+func (c *IncidentClient) IngestEvent(event models.DetectionEvent, decision rules.Decision) (string, error) {
+	payload := ingestEventPayload{
+		CameraID:      event.CameraID,
+		ZoneID:        event.ZoneID,
+		DetectionType: event.Type,
+		IncidentType:  decision.IncidentType,
+		Priority:      decision.Priority,
+		RiskScore:     decision.RiskScore,
+		RuleID:        decision.RuleID,
+		Timestamp:     event.Timestamp,
+		CurrentCount:  event.CurrentCount,
+		WeaponClass:   optionalString(event.WeaponClass),
+		TrackID:       optionalString(event.TrackID),
+		LinkedTrackID: optionalString(event.LinkedTrackID),
+		Snapshot:      optionalString(event.SnapshotPath),
+		Heartbeat:     event.Heartbeat,
+	}
+	if event.Confidence > 0 {
+		confidence := event.Confidence
+		payload.Confidence = &confidence
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= MaxRetryAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(backoffDelay(attempt - 1))
+		}
+
+		action, err := c.doIngest(body)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return action, nil
+	}
+
+	return "", fmt.Errorf("%w: %v", ErrRetriesExhausted, lastErr)
+}
+
+// doIngest performs a single ingest HTTP attempt with a 5s timeout. The
+// incident-service answers 201 when it opened an incident and 200 when it
+// updated one (or ignored a heartbeat); anything else is an error.
+func (c *IncidentClient) doIngest(body []byte) (string, error) {
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/internal/incidents/ingest", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	internalauth.AttachInternalKey(req, c.InternalKey)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("incident-service returned status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Action string `json:"action"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out) // best effort: only used for logging
+	return out.Action, nil
+}
+
+func optionalString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 // doCreate performs a single incident-creation HTTP attempt with a 5s timeout.
 // It returns a non-nil error when the request fails or incident-service
 // responds with a status other than 201 Created.

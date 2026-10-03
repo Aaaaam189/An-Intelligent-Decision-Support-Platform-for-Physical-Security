@@ -18,6 +18,12 @@ type CreateIncidentRequest struct {
 	Priority  models.IncidentPriority `json:"priority" binding:"required,oneof=LOW MEDIUM HIGH CRITICAL"`
 	RiskScore float64                 `json:"riskScore" binding:"required"`
 	RuleID    *uuid.UUID              `json:"ruleId,omitempty"`
+
+	// Optional initial situation counts, used when the incident is opened from
+	// a detection event (see IngestEvent). Plain callers can leave them unset.
+	InitialPersonCount  int `json:"initialPersonCount,omitempty"`
+	InitialVehicleCount int `json:"initialVehicleCount,omitempty"`
+	InitialWeaponCount  int `json:"initialWeaponCount,omitempty"`
 }
 
 type UpdateIncidentStatusRequest struct {
@@ -41,4 +47,11 @@ type IncidentResponse struct {
 	AssignedGuardID *uuid.UUID              `json:"assignedGuardId"`
 	CreatedAt       time.Time               `json:"createdAt"`
 	ClosedAt        *time.Time              `json:"closedAt"`
+
+	ContributingTypes []string   `json:"contributingTypes"`
+	PeakPersonCount   int        `json:"peakPersonCount"`
+	PeakVehicleCount  int        `json:"peakVehicleCount"`
+	WeaponCount       int        `json:"weaponCount"`
+	LastActivityAt    *time.Time `json:"lastActivityAt"`
+	EscalatedAt       *time.Time `json:"escalatedAt"`
 }

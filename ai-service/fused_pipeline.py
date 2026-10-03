@@ -11,6 +11,9 @@ import urllib.request
 import urllib.error
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
+
+from vehicle_link import CountSmoother, VehicleLinker, find_holder
 
 # =====================================================================
 # SentinelAI multi-camera detection service
@@ -103,7 +106,14 @@ VEHICLE_IMGSZ = int(_env("VEHICLE_IMGSZ", "640"))
 VEHICLE_EVERY_N_FRAMES = int(_env("VEHICLE_EVERY_N_FRAMES", "2"))
 
 # --- Detection tuning ---
-PERSON_CONF_THRESHOLD = 0.35
+PERSON_CONF_THRESHOLD = float(_env("PERSON_CONF_THRESHOLD", "0.35"))
+VEHICLE_CONF = float(_env("VEHICLE_CONF", "0.3"))
+# Tracker configs. A detection only gets an id (and can be counted) if its score
+# reaches the tracker's new_track_thresh, which is 0.4 in botsort_custom.yaml, so
+# lowering the conf values above has no effect unless you also point these at
+# botsort_lowthresh.yaml (new_track_thresh 0.25).
+PERSON_TRACKER = _env("PERSON_TRACKER", "botsort_custom.yaml")
+VEHICLE_TRACKER = _env("VEHICLE_TRACKER", "botsort_custom.yaml")
 # Detection input size. 640 (default YOLO) gives the best accuracy, including
 # small/distant people. Lower it via env only if you need more speed and accept
 # missing small objects. The wall-clock frame-dropping loop keeps playback
@@ -148,8 +158,15 @@ PUBLISH_CHECK_INTERVAL = 15
 # without starving each other. 0 disables throttling.
 TARGET_FPS = float(_env("TARGET_FPS", "12"))
 
-SNAPSHOT_DIR = "alert_snapshots"
+# Evidence images (annotated frames) saved for incident timelines. They are
+# served back at /snapshots/<file name> by the MJPEG server below.
+SNAPSHOT_DIR = _env("SNAPSHOT_DIR", "alert_snapshots")
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+
+# While people/vehicles stay in view, re-send an update this often (seconds).
+# The backend uses these heartbeats to tell an ongoing situation from one that
+# is over; keep it well below the incident-service INCIDENT_GRACE_SECONDS.
+HEARTBEAT_SECONDS = float(_env("HEARTBEAT_SECONDS", "10"))
 
 
 def now_iso():
@@ -274,6 +291,50 @@ class CameraWorker(threading.Thread):
         with self._latest_jpeg_lock:
             return self._latest_jpeg
 
+    def _save_snapshot(self, prefix):
+        """Save the latest annotated frame as evidence and return its FILE NAME
+        (not a path), or None when there is no frame yet or the write fails.
+        A failed write must never take the detection loop down."""
+        snap = self.get_latest_jpeg()
+        if snap is None:
+            return None
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in prefix)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        millis = int((time.time() % 1) * 1000)
+        name = f"{safe}_{str(self.camera_id)[:8]}_{stamp}-{millis:03d}.jpg"
+        try:
+            with open(os.path.join(SNAPSHOT_DIR, name), "wb") as f:
+                f.write(snap)
+        except OSError as e:
+            print(f"[{self.cam_name}] could not save snapshot: {e}")
+            return None
+        return name
+
+    def _presence_payload(self, event_type, count, heartbeat,
+                          snapshot_prefix=None, link=None):
+        """Build a person/vehicle presence event.
+
+        `count` is a presence LEVEL, not a head count: 1 = one, 2 = several.
+
+        heartbeat=False marks a real change (presence started, a person appeared
+        next to a vehicle); heartbeat=True marks the periodic "still there"
+        update. link is (person_track_id, vehicle_track_id) when a person
+        appeared next to a stationary vehicle."""
+        payload = {
+            "cameraId": self.camera_id, "zoneId": self.zone_id,
+            "type": event_type, "currentCount": count,
+            "timestamp": now_iso(), "heartbeat": heartbeat,
+        }
+        if snapshot_prefix:
+            name = self._save_snapshot(snapshot_prefix)
+            if name:
+                payload["snapshotPath"] = name
+        if link is not None:
+            person_id, vehicle_id = link
+            payload["trackId"] = f"person-{person_id}"
+            payload["linkedTrackId"] = f"vehicle-{vehicle_id}"
+        return payload
+
     def run(self):
         # ---- DISPLAY / READER THREAD ----
         # Reads frames in order and paces them to the source video's real FPS so
@@ -397,9 +458,23 @@ class CameraWorker(threading.Thread):
         person_last_seen = {}
         weapon_seen_counts = defaultdict(int)
         weapon_already_alerted = set()
+        weapon_last_publish = {}    # weapon track id -> time of its last event
         last_person_state = None
         last_vehicle_state = None
         det_tick = 0
+
+        # Situation tracking (see vehicle_link.py and the presence block below).
+        linker = VehicleLinker()
+        pending_links = []          # (person_track_id, vehicle_track_id) not yet reported
+        last_person_publish = 0.0
+        last_vehicle_publish = 0.0
+        person_peak = 0             # highest person count reported in this presence episode
+        vehicle_peak = 0
+        # Only used to tell ONE object from SEVERAL: "objects visible now",
+        # smoothed over a few ticks. Exact head counts are not reported because
+        # tracker ids are not people (a new id appears after every occlusion).
+        person_counter = CountSmoother()
+        vehicle_counter = CountSmoother()
 
         while not self._stop_event.is_set():
             with self._frame_lock:
@@ -412,31 +487,47 @@ class CameraWorker(threading.Thread):
 
             # --- Vehicle ---
             vehicle_results = None
+            vehicles_now = []
             if ENABLE_VEHICLE_DETECTION:
                 vehicle_results = self.vehicle_model.track(
-                    frame, classes=VEHICLE_CLASSES, persist=True, conf=0.3, iou=0.4,
-                    imgsz=VEHICLE_IMGSZ, tracker="botsort_custom.yaml", verbose=False,
+                    frame, classes=VEHICLE_CLASSES, persist=True, conf=VEHICLE_CONF, iou=0.4,
+                    imgsz=VEHICLE_IMGSZ, tracker=VEHICLE_TRACKER, verbose=False,
                 )
+                vehicles_now = []
                 if vehicle_results[0].boxes.id is not None:
                     for box in vehicle_results[0].boxes:
-                        vehicle_last_seen[int(box.id[0])] = det_tick
-
+                        vtid = int(box.id[0])
+                        vehicle_last_seen[vtid] = det_tick
+                        vehicles_now.append((vtid, box.xyxy[0].tolist()))
+                linker.update_vehicles(det_tick, vehicles_now)
+                vehicle_counter.add(len(vehicles_now))
             # --- Person ---
             person_results = self.person_model.track(
                 frame, persist=True, classes=[COCO_PERSON_CLASS],
                 conf=PERSON_CONF_THRESHOLD, iou=0.5, imgsz=PERSON_IMGSZ,
-                tracker="botsort_custom.yaml", verbose=False,
+                tracker=PERSON_TRACKER, verbose=False,
             )
             body_boxes = []
             persons_to_draw = []
+            new_persons = []        # tracks never seen before this tick
             if person_results[0].boxes.id is not None:
                 for box in person_results[0].boxes:
                     tid = int(box.id[0])
                     pbox = box.xyxy[0].tolist()
+                    if tid not in person_last_seen:
+                        new_persons.append((tid, pbox))
                     person_last_seen[tid] = det_tick
                     body_boxes.append(pbox)
                     persons_to_draw.append((tid, pbox))
             person_count = len(persons_to_draw)
+            person_counter.add(person_count)
+
+            # A person who first appears next to a STATIONARY vehicle most likely
+            # stepped out of it. Remember the link; it is reported with the next
+            # presence check.
+            if ENABLE_VEHICLE_DETECTION and new_persons:
+                for person_id, vehicle_id in linker.link_new_persons(det_tick, new_persons):
+                    pending_links.append((person_id, vehicle_id))
 
             # --- Weapon ---
             weapon_results = self.weapon_model.track(
@@ -482,6 +573,26 @@ class CameraWorker(threading.Thread):
                               f"area_ok={big_enough})")
 
                     if track_id in weapon_already_alerted:
+                        # Still in view: repeat the alert as a heartbeat. If the
+                        # first event was lost (backend still starting, rule
+                        # changed, network blip) the situation still gets raised
+                        # and escalated, and the heartbeat keeps it alive. Also
+                        # covers weapons without a tracker id (-1, -2, ...), which
+                        # would otherwise alert once and never again.
+                        now_w = time.time()
+                        if (confident_enough and assoc_ok and big_enough
+                                and now_w - weapon_last_publish.get(track_id, 0.0) >= HEARTBEAT_SECONDS):
+                            weapon_last_publish[track_id] = now_w
+                            beat = {
+                                "cameraId": self.camera_id, "zoneId": self.zone_id,
+                                "type": "WEAPON_DETECTED", "weaponClass": class_name,
+                                "confidence": confidence, "timestamp": now_iso(),
+                                "trackId": f"weapon-{track_id}", "heartbeat": True,
+                            }
+                            holder_id = find_holder(weapon_box, persons_to_draw, ASSOCIATION_IOU_THRESHOLD)
+                            if holder_id is not None:
+                                beat["linkedTrackId"] = f"person-{holder_id}"
+                            self.publish("detection.weapon", beat)
                         continue
 
                     if confident_enough and assoc_ok and big_enough:
@@ -491,48 +602,99 @@ class CameraWorker(threading.Thread):
 
                     if confident_enough and assoc_ok and big_enough and qualifies:
                         weapon_already_alerted.add(track_id)
-                        timestamp_str = time.strftime("%Y%m%d-%H%M%S")
-                        snapshot_path = os.path.join(
-                            SNAPSHOT_DIR,
-                            f"weapon_{self.cam_name}_{class_name}_{track_id}_{timestamp_str}.jpg",
-                        )
-                        snap = self.get_latest_jpeg()
-                        if snap is not None:
-                            with open(snapshot_path, "wb") as f:
-                                f.write(snap)
-                        self.publish("detection.weapon", {
+                        weapon_last_publish[track_id] = time.time()
+                        snapshot_name = self._save_snapshot(f"weapon_{class_name}_{track_id}")
+                        holder_id = find_holder(weapon_box, persons_to_draw, ASSOCIATION_IOU_THRESHOLD)
+                        weapon_payload = {
                             "cameraId": self.camera_id, "zoneId": self.zone_id,
                             "type": "WEAPON_DETECTED", "weaponClass": class_name,
                             "confidence": confidence, "timestamp": now_iso(),
-                            "snapshotPath": snapshot_path,
-                        })
+                            "trackId": f"weapon-{track_id}", "heartbeat": False,
+                        }
+                        if snapshot_name:
+                            weapon_payload["snapshotPath"] = snapshot_name
+                        if holder_id is not None:
+                            weapon_payload["linkedTrackId"] = f"person-{holder_id}"
+                        self.publish("detection.weapon", weapon_payload)
 
-            # --- Presence check ---
+            # --- Presence check + heartbeats ---
+            # A message is sent when presence starts, when it goes from one object to several, when
+            # a person appears next to a stationary vehicle, and then every
+            # HEARTBEAT_SECONDS while presence continues. The heartbeats let the
+            # backend tell "still happening" from "over" (incident-service ends a
+            # situation only after a quiet grace period).
             if det_tick % PUBLISH_CHECK_INTERVAL == 0:
+                now_t = time.time()
+
                 active_persons = [tid for tid, seen in person_last_seen.items()
                                   if det_tick - seen <= TRACK_TIMEOUT_FRAMES]
                 person_present = len(active_persons) > 0 or person_count > 0
+                # Presence uses the timeout-tolerant track list (someone briefly
+                # hidden is still "present"). What is reported is a LEVEL, not a
+                # head count: 0 none, 1 one, 2 several.
+                person_now = ((2 if person_counter.value() >= 2 else 1)
+                              if person_present else 0)
 
                 if person_present != last_person_state:
-                    self.publish("detection.person", {
-                        "cameraId": self.camera_id, "zoneId": self.zone_id,
-                        "type": "PERSON_DETECTED" if person_present else "NO_PERSON",
-                        "currentCount": max(len(active_persons), person_count),
-                        "timestamp": now_iso(),
-                    })
+                    if person_present:
+                        link = pending_links.pop(0) if pending_links else None
+                        self.publish("detection.person", self._presence_payload(
+                            "PERSON_DETECTED", person_now, False, "person", link))
+                        last_person_publish = now_t
+                        person_peak = person_now
+                    else:
+                        self.publish("detection.person", {
+                            "cameraId": self.camera_id, "zoneId": self.zone_id,
+                            "type": "NO_PERSON", "currentCount": person_now,
+                            "timestamp": now_iso(), "heartbeat": False,
+                        })
+                        person_peak = 0
                     last_person_state = person_present
+                elif person_present:
+                    # More people stepping out of a vehicle: one event each.
+                    while pending_links:
+                        link = pending_links.pop(0)
+                        self.publish("detection.person", self._presence_payload(
+                            "PERSON_DETECTED", person_now, False, "person_link", link))
+                        last_person_publish = now_t
+                    increased = person_now > person_peak
+                    if increased or now_t - last_person_publish >= HEARTBEAT_SECONDS:
+                        self.publish("detection.person", self._presence_payload(
+                            "PERSON_DETECTED", person_now, True,
+                            "person_several" if increased else None))
+                        last_person_publish = now_t
+                        person_peak = max(person_peak, person_now)
+                else:
+                    pending_links.clear()  # the linked people already left
 
                 if ENABLE_VEHICLE_DETECTION:
                     active_vehicles = [tid for tid, seen in vehicle_last_seen.items()
                                        if det_tick - seen <= TRACK_TIMEOUT_FRAMES]
                     vehicle_state = len(active_vehicles) > 0
+                    vehicle_now = ((2 if vehicle_counter.value() >= 2 else 1)
+                                   if vehicle_state else 0)
                     if vehicle_state != last_vehicle_state:
-                        self.publish("detection.vehicle", {
-                            "cameraId": self.camera_id, "zoneId": self.zone_id,
-                            "type": "VEHICLE_DETECTED" if vehicle_state else "NO_VEHICLE",
-                            "currentCount": len(active_vehicles), "timestamp": now_iso(),
-                        })
+                        if vehicle_state:
+                            self.publish("detection.vehicle", self._presence_payload(
+                                "VEHICLE_DETECTED", vehicle_now, False, "vehicle"))
+                            last_vehicle_publish = now_t
+                            vehicle_peak = vehicle_now
+                        else:
+                            self.publish("detection.vehicle", {
+                                "cameraId": self.camera_id, "zoneId": self.zone_id,
+                                "type": "NO_VEHICLE", "currentCount": vehicle_now,
+                                "timestamp": now_iso(), "heartbeat": False,
+                            })
+                            vehicle_peak = 0
                         last_vehicle_state = vehicle_state
+                    elif vehicle_state:
+                        increased = vehicle_now > vehicle_peak
+                        if increased or now_t - last_vehicle_publish >= HEARTBEAT_SECONDS:
+                            self.publish("detection.vehicle", self._presence_payload(
+                                "VEHICLE_DETECTED", vehicle_now, True,
+                                "vehicle_several" if increased else None))
+                            last_vehicle_publish = now_t
+                            vehicle_peak = max(vehicle_peak, vehicle_now)
 
     def _cleanup(self, cap):
         # Deregister from the MJPEG server registry.
@@ -592,8 +754,36 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
     def _set_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
 
+    def _serve_snapshot(self, raw_name):
+        """Serve an evidence image saved by a camera worker. Only bare .jpg file
+        names inside SNAPSHOT_DIR are ever served (no path traversal)."""
+        name = os.path.basename(unquote(raw_name))
+        full = os.path.join(SNAPSHOT_DIR, name)
+        data = None
+        if name.lower().endswith(".jpg") and os.path.isfile(full):
+            try:
+                with open(full, "rb") as f:
+                    data = f.read()
+            except OSError:
+                data = None
+        if data is None:
+            self.send_response(404)
+            self._set_cors()
+            self.end_headers()
+            return
+        self.send_response(200)
+        self._set_cors()
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path.startswith("/snapshots/"):
+            self._serve_snapshot(path[len("/snapshots/"):])
+            return
         if not path.startswith("/stream/"):
             self.send_response(404)
             self._set_cors()
@@ -653,7 +843,8 @@ def start_mjpeg_server():
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     print(f"[mjpeg] annotated streams available at "
-          f"http://localhost:{MJPEG_PORT}/stream/<cameraId>")
+          f"http://localhost:{MJPEG_PORT}/stream/<cameraId> "
+          f"(evidence images at /snapshots/<file>)")
     return server
 
 

@@ -15,12 +15,15 @@ COPY requirements.txt .
 RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
  && pip install -r requirements.txt
 
-COPY fused_pipeline.py serve_videos.py *.yaml ./
+COPY fused_pipeline.py vehicle_link.py serve_videos.py *.yaml ./
 
 # Trained weapon weights are not in the repo: mount them at runtime, e.g.
 #   -v ./weights/runs:/app/runs   (expects runs/detect/weapon_detector_v4/weights/best.pt)
 # yolov8m.pt is downloaded automatically on first run.
-RUN useradd -r -u 10001 -m app && chown -R app /app
+# alert_snapshots must exist in the image so the named volume mounted on it is
+# writable by the non-root user.
+RUN mkdir -p /app/alert_snapshots \
+ && useradd -r -u 10001 -m app && chown -R app /app
 USER app
 
 ENV MJPEG_PORT=8091

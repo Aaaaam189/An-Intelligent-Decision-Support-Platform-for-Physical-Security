@@ -1,3 +1,6 @@
 ultralytics
 opencv-python-headless
 pika
+# ByteTrack/BoT-SORT (model.track) import this at runtime; without it in the image
+# the tracker crashes on first use ("No module named 'lap'").
+lap>=0.5.12

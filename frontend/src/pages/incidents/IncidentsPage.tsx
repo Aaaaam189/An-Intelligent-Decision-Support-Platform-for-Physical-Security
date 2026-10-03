@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { formatObjectCounts } from "../../components/incidents/situation";
 import { useNavigate } from "react-router-dom";
 import { useIncidents, useUpdateIncidentStatus, useReassignIncident } from "../../hooks/useIncidents";
 import { useActiveUsers } from "../../hooks/useUsers";
@@ -106,7 +107,15 @@ function AdminIncidentsView() {
                 style={rowStyle}
                 onClick={() => handleRowClick(incident.id)}
               >
-                <td style={tdStyle}>{incident.type}</td>
+                <td style={tdStyle}>
+                  {incident.type}
+                  {incident.escalatedAt && (
+                    <span style={escalatedTagStyle}>↑ escalated</span>
+                  )}
+                  {formatObjectCounts(incident) && (
+                    <div style={objectCountsStyle}>{formatObjectCounts(incident)}</div>
+                  )}
+                </td>
                 <td style={tdStyle}>
                   <StatusBadge
                     value={incident.priority}
@@ -254,7 +263,15 @@ function GuardIncidentsView() {
                 style={rowStyle}
                 onClick={() => handleRowClick(incident.id)}
               >
-                <td style={tdStyle}>{incident.type}</td>
+                <td style={tdStyle}>
+                  {incident.type}
+                  {incident.escalatedAt && (
+                    <span style={escalatedTagStyle}>↑ escalated</span>
+                  )}
+                  {formatObjectCounts(incident) && (
+                    <div style={objectCountsStyle}>{formatObjectCounts(incident)}</div>
+                  )}
+                </td>
                 <td style={tdStyle}>
                   <StatusBadge
                     value={incident.priority}
@@ -457,4 +474,17 @@ const closeButtonStyle: CSSProperties = {
   cursor: "pointer",
   backgroundColor: colors.darkGray,
   color: colors.black,
+};
+
+const escalatedTagStyle: CSSProperties = {
+  marginLeft: "8px",
+  fontSize: "11px",
+  fontWeight: 700,
+  color: colors.red,
+};
+
+const objectCountsStyle: CSSProperties = {
+  fontSize: "12px",
+  opacity: 0.6,
+  marginTop: "2px",
 };

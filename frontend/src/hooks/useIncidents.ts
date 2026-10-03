@@ -24,6 +24,8 @@ export function useIncidents(): UseIncidentsReturn {
     queryKey: ["incidents"],
     queryFn: getIncidents,
     staleTime: 30 * 1000, // 30 seconds
+    // Situations keep evolving (counts, escalation) while guards watch the list.
+    refetchInterval: 10 * 1000,
   });
 
   return {
@@ -47,6 +49,7 @@ export function useIncident(id: string): UseIncidentReturn {
     queryFn: () => getIncidentById(id),
     staleTime: 30 * 1000,
     enabled: !!id,
+    refetchInterval: 10 * 1000,
   });
 
   return {

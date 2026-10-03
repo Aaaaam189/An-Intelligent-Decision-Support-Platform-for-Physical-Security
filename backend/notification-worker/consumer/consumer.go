@@ -15,6 +15,7 @@ const (
 	keyIncidentAssigned    = "notification.incident_assigned"
 	keyIncidentResolved    = "notification.incident_resolved"
 	keyIncidentUnassigned  = "notification.incident_unassigned"
+	keyIncidentEscalated   = "notification.incident_escalated"
 	keyAssistance          = "notification.assistance"
 	keyAvailabilityCreated = "alert.availability_created"
 )
@@ -102,6 +103,20 @@ func route(h *hub.Hub, routingKey string, body []byte) {
 		// Escalate to supervisors and on-duty coordinators (Req 5.6).
 		h.SendToRole(roleSupervisor, body)
 		h.SendToRole(roleCoordinator, body)
+
+	case keyIncidentEscalated:
+		// An existing incident became more serious (for example a weapon
+		// appeared during an intrusion). Tell the assigned guard; when nobody
+		// is assigned, escalate to supervisors and coordinators. Admins always
+		// get it so the dashboard banner reflects the escalation.
+		p := parsePayload(routingKey, body)
+		if p.AssignedGuardID != "" {
+			h.SendToUser(p.AssignedGuardID, body)
+		} else {
+			h.SendToRole(roleSupervisor, body)
+			h.SendToRole(roleCoordinator, body)
+		}
+		h.SendToRole(roleAdmin, body)
 
 	case keyAssistance:
 		// Notify every available guard the incident-service selected (Req 6.3).
